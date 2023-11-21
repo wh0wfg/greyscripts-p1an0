@@ -1,0 +1,504 @@
+// by p1an0 2023-11-12
+
+import_code("../lib/json.src")
+import_code("../lib/logger.src")
+import_code("../lib/network.src")
+
+PXC = {}
+PXC.initializeEnvironment = function()
+    self.DATA_PATH = parent_path(program_path) + "/p1an0Xdata/"
+    self.LIB_PATH = self.DATA_PATH + "lib/"
+    self.BIN_PATH = self.DATA_PATH + "bin/"
+    self.EXPLOITS_DATABASE_NAME = "exploits_database.json"
+    self.EXPLOITS_DATABASE_PATH = self.DATA_PATH + self.EXPLOITS_DATABASE_NAME
+    self.PROGRAM_NAME = program_path.split("/")[-1]
+
+    self.metaxploit = include_lib("/lib/metaxploit.so")
+    self.crypto = include_lib("/lib/crypto.so")
+    self.librshell = include_lib("/lib/librshell.so")
+    self.logger = new Logger
+    self.logger.name = "p1an0Xcore"
+
+    self.logger.info("Initializing Environment")
+    if not self.metaxploit then self.metaxploit = include_lib(self.LIB_PATH + "metaxploit.so")
+    if not self.metaxploit then
+        self.logger.error("Missing metaxploit.so")
+        exit
+    end if
+    if not self.crypto then self.crypto = include_lib(self.LIB_PATH + "crypto.so")
+    if not self.crypto then
+        self.logger.error("Missing crypto.so")
+        exit
+    end if
+    if not self.librshell then self.librshell = include_lib(self.LIB_PATH + "librshell.so")
+    if not self.librshell then
+        self.logger.error("Missing librshell.so")
+        exit
+    end if
+
+    // [lib_name][version] = [[memory_address, unsec_zone], ...]
+    self.exploits_database = get_shell.host_computer.File(self.EXPLOITS_DATABASE_PATH)
+    if not self.exploits_database then
+        self.logger.warn("Missing exploits database")
+        self.exploits_database = {}
+    else
+        self.exploits_database = parse(self.exploits_database.get_content)
+        if typeof(self.exploits_database) != "map" then
+            print(self.exploits_database)
+            self.logger.warn("Invalid exploits database")
+            self.exploits_database = {}
+        end if
+    end if
+end function
+
+
+useFileGetFile = function(current_file, target_file_path, is_folder_flag=false)
+    target_path_split = target_file_path.split("/")[1:]
+    for i in range(1000)
+        if current_file.parent then 
+            current_file = current_file.parent
+        else
+            break
+        end if
+    end for
+    if not current_file.is_folder then return
+
+    for each_split in target_path_split[:-1]
+        for each_folder in current_file.get_folders
+            if each_folder.name == each_split then
+                current_file = each_folder
+                break
+            end if
+        end for
+    end for
+    
+    if is_folder_flag then
+        for each_folder in current_file.get_folders
+            if each_folder.name == target_path_split[-1] then
+                current_file = each_folder
+                break
+            end if
+        end for
+    else
+        for each_file in current_file.get_files
+            if each_file.name == target_path_split[-1] then
+                current_file = each_file
+                break
+            end if
+        end for
+    end if
+
+    if current_file.path != target_file_path then return null
+    return current_file
+end function
+
+useExploitsGetFiles = function(lan, target_ip, file_path)
+    avalailbe_files = []
+    for each_shell in lan.data[target_ip]["exploits"]["shell"]
+            
+        file = each_shell.host_computer.File(file_path)
+        if not file or file.path != file_path then continue
+        avalailbe_files.push(file)
+
+    end for
+
+    for each_computer in lan.data[target_ip]["exploits"]["computer"]
+        
+        file = each_computer.File(file_path)
+        if not file or file.path != file_path then continue
+        avalailbe_files.push(file)
+
+    end for
+
+    for each_file in lan.data[target_ip]["exploits"]["file"]
+        
+        file = useFileGetFile(each_file, file_path)
+        if not file then continue
+        avalailbe_files.push(file)
+
+    end for
+    return avalailbe_files
+end function
+
+useExploitsGetComputers = function(lan, target_ip)
+    computers = []
+    for each_shell in lan.data[target_ip]["exploits"]["shell"]
+            
+        computers.push(each_shell.host_computer)
+
+    end for
+
+    for each_computer in lan.data[target_ip]["exploits"]["computer"]
+        
+        computers.push(each_computer)
+
+    end for
+
+    return computers
+end function
+
+PXC.getUserPwd = function(passwd_file, target_username)
+    passwd_content = passwd_file.get_content
+    if not passwd_content then return null
+    for each_account in passwd_content.split(char(10))
+        if each_account.split(":")[0] == target_username then
+            passwd = self.crypto.decipher(each_account.split(":")[1])
+            return passwd
+        end if
+    end for
+    return null
+end function
+
+
+PXC.scanLan = function(wan_ip)
+    if not is_valid_ip(wan_ip) then
+        self.logger.error("Invalid ip: " + wan_ip)
+        return null
+    end if
+    
+    router = get_router(wan_ip)
+    if not router then
+        self.logger.error("Can not connect to " + wan_ip)
+        return null
+    end if
+
+    self.logger.info("Scanning " + wan_ip)
+
+    lan = Lan.init
+    router_lan_ip = router.local_ip
+    lan.addRoot(router_lan_ip, wan_ip, router.device_ports(router_lan_ip).push(0))
+
+    // devices in router
+    for each_lan_ip in router.devices_lan_ip
+        lan.addNode(each_lan_ip, router_lan_ip, [])
+        target_ports = router.device_ports(each_lan_ip)
+        if not target_ports or typeof(target_ports) == "string" then
+            self.logger.info(target_ports)
+            continue
+        end if
+        for each_port in target_ports
+            lan.addPort(each_lan_ip, each_port.port_number)
+        end for
+    end for
+
+    return lan
+end function
+
+
+PXC.getLanExpoits = function(lan, target_ip)
+    // Vulnerabilities Detecting
+    // vulner of router
+    self.logger.info("Detecting vulnerabilities of " + lan.wan_ip)
+    cacheOverflowResult = function(overflow_result, victim_lan_ip, victim_port)
+        victim_port_num = 0
+        if victim_port then victim_port_num = victim_port.port_number 
+        
+        lan.addNode(victim_lan_ip, null, [victim_port_num])
+        lan.addPort(victim_lan_ip, victim_port_num)
+        lan.addExploit(victim_lan_ip, overflow_result)
+    end function
+
+    router = get_router(lan.wan_ip)
+    router_lan_ip = router.local_ip
+
+    for each_port in lan.data[router_lan_ip]["ports"]
+
+        net_session = self.metaxploit.net_use(lan.wan_ip, each_port)
+        if not net_session then continue
+
+        net_dump_lib = net_session.dump_lib
+        net_lib_name = net_dump_lib.lib_name
+        net_lib_ver = net_dump_lib.version
+
+        self.logger.info(each_port + " " + net_lib_name + " " + net_lib_ver)
+
+        if not self.exploits_database.hasIndex(net_lib_name) then
+            self.exploits_database[net_lib_name] = {}
+        end if
+        if not self.exploits_database[net_lib_name].hasIndex(net_lib_ver) then
+            self.exploits_database[net_lib_name][net_lib_ver] = []
+
+            for each_mem_addr in self.metaxploit.scan(net_dump_lib)
+                vulner_info = self.metaxploit.scan_address(net_dump_lib, each_mem_addr).split("Unsafe check: ").replace(char(10), "")
+                for vulner_info_line in vulner_info
+                    if vulner_info_line == vulner_info[0] then continue
+
+                    unsec_zone = vulner_info_line[vulner_info_line.indexOf("<b>")+3:vulner_info_line.indexOf("</b>")]
+                    self.exploits_database[net_lib_name][net_lib_ver].push([each_mem_addr, unsec_zone])
+                end for
+
+                exploits_database_string = toJSON(self.exploits_database)
+                get_shell.host_computer.touch(self.DATA_PATH, self.EXPLOITS_DATABASE_NAME)
+                get_shell.host_computer.File(self.EXPLOITS_DATABASE_PATH).set_content(exploits_database_string)
+            end for
+        end if
+
+
+        for each_exploit in self.exploits_database[net_lib_name][net_lib_ver]
+            
+            victim_lan_ip = router_lan_ip
+            victim_port = router.ping_port(each_port) 
+            if victim_port then victim_lan_ip = victim_port.get_lan_ip
+
+            if target_ip and victim_lan_ip != target_ip then continue
+
+            mem_addr = each_exploit[0]
+            unsec_zone = each_exploit[1]
+            overflow_result = net_dump_lib.overflow(mem_addr, unsec_zone)
+            
+            // bounuce attack
+            if not overflow_result then
+                for each_lan_ip in lan.ip[1:]
+                    victim_lan_ip = each_lan_ip
+                    victim_port = null
+
+                    if target_ip and victim_lan_ip != target_ip then continue
+
+                    overflow_result = net_dump_lib.overflow(mem_addr, unsec_zone, each_lan_ip)
+                    cacheOverflowResult(overflow_result, victim_lan_ip, victim_port)
+                end for
+                if target_ip and lan.ip.indexOf(target_ip) == null then
+                    overflow_result = net_dump_lib.overflow(mem_addr, unsec_zone, target_ip)
+                    victim_lan_ip = target_ip
+                    victim_port = null
+                end if
+
+                cacheOverflowResult(overflow_result, victim_lan_ip, victim_port)
+            else
+                cacheOverflowResult(overflow_result, victim_lan_ip, victim_port)
+            end if
+
+        end for
+
+    end for
+end function
+
+
+PXC.getLanCreds = function(lan)
+    self.logger.info("Gathering all credentials of " + lan.wan_ip)
+
+    PWD_PATH = "/etc/passwd"
+    // get passwd file
+    for each_ip in lan.ip
+
+        for each_file in useExploitsGetFiles(lan, each_ip, PWD_PATH)
+            content = each_file.get_content
+            if not content then continue
+
+            for each_account in content.split(char(10))
+                if not each_account then continue
+                username = each_account.split(":")[0]
+                password = each_account.split(":")[1]
+
+                if lan.data[each_ip]["credentials"]["user"].hasIndex(username) then continue
+                lan.data[each_ip]["credentials"]["user"][username] = password
+            end for
+            break
+        end for
+        
+        for each_user in lan.data[each_ip]["credentials"]["user"].indexes
+            if each_user == "root" then continue
+            BANK_PATH = "/home/" + each_user + "/Config/Bank.txt"
+            
+            flag = false
+            for each_file in useExploitsGetFiles(lan, each_ip, BANK_PATH)
+                content = each_file.get_content
+                if not content then continue
+    
+                for each_account in content.split(char(10))
+                    if not each_account then continue
+                    username = each_account.split(":")[0]
+                    password = each_account.split(":")[1]
+    
+                    if lan.data[each_ip]["credentials"]["bank"].hasIndex(username) then continue
+                    lan.data[each_ip]["credentials"]["bank"][username] = password
+                    
+                    flag = true
+                    break
+                end for
+                if flag then break
+            end for
+
+            MAIL_PATH = "/home/" + each_user + "/Config/Mail.txt"
+
+            flag = false
+            for each_file in useExploitsGetFiles(lan, each_ip, MAIL_PATH)
+                content = each_file.get_content
+                if not content then continue
+    
+                for each_account in content.split(char(10))
+                    if not each_account then continue
+                    username = each_account.split(":")[0]
+                    password = each_account.split(":")[1]
+    
+                    if lan.data[each_ip]["credentials"]["mail"].hasIndex(username) then continue
+                    lan.data[each_ip]["credentials"]["mail"][username] = password
+                    
+                    flag = true
+                    break
+                end for
+                if flag then break
+            end for
+            
+        end for
+
+    end for
+
+end function
+
+PXC.jump = function(local_shell, remote_path, remote_shell, is_light_mode)
+    if is_light_mode then
+        remote_file = remote_shell.host_computer.File(remote_path + "/p1an0Xdata")
+        if not remote_file then
+            resutl = remote_shell.host_computer.create_folder(remote_path, "p1an0Xdata")
+            if typeof(resutl) == "string" then
+                self.logger.error(result)
+                return
+            end if
+            remote_file = remote_shell.host_computer.File(remote_path + "/p1an0Xdata")
+        end if
+        remote_file.chmod("u+wrx", true)
+        self.logger.info("Uploading lib")
+        result = local_shell.scp(self.LIB_PATH, remote_path+"/p1an0Xdata", remote_shell)
+        if typeof(result) == "string" then
+            self.logger.error(result)
+            return
+        end if
+    else
+        self.logger.info("Uploading p1an0Xdata")
+        result = local_shell.scp(self.DATA_PATH, remote_path, remote_shell)
+        if typeof(result) == "string" then
+            self.logger.error(result)
+            return
+        end if
+        remote_file = remote_shell.host_computer.File(remote_path)
+        remote_file.chmod("u+wrx", true)
+    end if
+end function
+
+PXC.useComputerClearLog = function(computer)
+    log_file = computer.File("/var/system.log")
+    if not log_file then return true
+    if not log_file.has_permission("w") then return false
+    
+    computer.touch("/var", "p1an0Xcore")
+    replace_file = computer.File("/var/p1an0Xcore")
+    replace_file.set_content("p1an0Xcore")
+    replace_file.move("/var", "system.log")
+    return true
+end function
+
+PXC.clearLanLog = function(lan)
+    self.logger.info("Clearing log of wan: " + lan.wan_ip)
+    for each_ip in lan.ip
+        is_success = false
+        exploit_num = 0
+        for each_computer in useExploitsGetComputers(lan, each_ip)
+            if self.useComputerClearLog(each_computer) then 
+                is_success = true
+                break
+            end if
+            exploit_num = exploit_num + 1
+        end for
+        if is_success then
+            self.logger.info("Successfully clear log: " + each_ip)
+        else
+            self.logger.warn("Failed to clear log: " + each_ip + " Exploit num: " + exploit_num)
+        end if
+    end for
+end function
+
+PXC.leaveBackdoor = function(host_ip, host_port, process_name)
+    result = self.metaxploit.rshell_client(host_ip, host_port, process_name)
+    if typeof(result) == "string" then
+        self.logger.warn("leaveBackdoor: " + result)
+        return false
+    end if
+    return result
+end function
+
+PXC.getRshellList = function
+    result = self.librshell.install_service
+    if typeof(result) == "string" then
+        self.logger.warn("getRshellList: " + result)
+        return false
+    end if
+
+    rshell_list = self.metaxploit.rshell_server
+    if typeof(rshell_list) == "string" then
+        self.logger.warn("getRshellList: " + rshell_list)
+        return false
+    end if
+
+    result = self.librshell.stop_service
+    if typeof(result) == "string" then
+        self.logger.warn("getRshellList: " + result)
+        return false
+    end if
+    return rshell_list
+end function
+PXC.getRshellList = function
+    result = self.librshell.install_service
+    if typeof(result) == "string" then
+        self.logger.warn("getRshellList: " + result)
+        return false
+    end if
+
+    rshell_list = self.metaxploit.rshell_server
+    if typeof(rshell_list) == "string" then
+        self.logger.warn("getRshellList: " + rshell_list)
+        return false
+    end if
+
+    result = self.librshell.stop_service
+    if typeof(result) == "string" then
+        self.logger.warn("getRshellList: " + result)
+        return false
+    end if
+    return rshell_list
+end function
+PXC.privilegeEscalation(lan) = function
+    for each_file in get_shell.host_computer.File("/lib").get_files
+        meta_lib = self.metaxploit.load(each_file.path)
+        meta_name = meta_lib.lib_name
+        meta_ver = meta_lib.version
+
+        self.logger.info(meta_name + " " + meta_ver)
+
+        if not self.exploits_database.hasIndex(meta_name) then
+            self.exploits_database[meta_name] = {}
+        end if
+        if not self.exploits_database[meta_name].hasIndex(meta_ver) then
+            self.exploits_database[meta_name][meta_ver] = []
+
+            for each_mem_addr in self.metaxploit.scan(meta_lib)
+                vulner_info = self.metaxploit.scan_address(meta_lib, each_mem_addr).split("Unsafe check: ").replace(char(10), "")
+                for vulner_info_line in vulner_info
+                    if vulner_info_line == vulner_info[0] then continue
+
+                    unsec_zone = vulner_info_line[vulner_info_line.indexOf("<b>")+3:vulner_info_line.indexOf("</b>")]
+                    self.exploits_database[meta_name][meta_ver].push([each_mem_addr, unsec_zone])
+                end for
+
+                exploits_database_string = toJSON(self.exploits_database)
+                get_shell.host_computer.touch(self.DATA_PATH, self.EXPLOITS_DATABASE_NAME)
+                get_shell.host_computer.File(self.EXPLOITS_DATABASE_PATH).set_content(exploits_database_string)
+            end for
+        end if
+
+        for each_exploit in self.exploits_database[meta_name][meta_ver]
+            
+            mem_addr = each_exploit[0]
+            unsec_zone = each_exploit[1]
+            overflow_result = meta_lib.overflow(mem_addr, unsec_zone)
+            
+            victim_lan_ip = get_shell.host_computer.local_ip
+            victim_port_num = 0
+            
+            lan.addNode(victim_lan_ip, null, [victim_port_num])
+            lan.addPort(victim_lan_ip, victim_port_num)
+            lan.addExploit(victim_lan_ip, overflow_result)
+            
+        end for
+    end for
+end function

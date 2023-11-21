@@ -1,0 +1,771 @@
+import_code("../lib/argparse.src")
+import_code("../lib/p1an0Xcore.src")
+
+//// global variables begin////
+HOST_NAME = get_shell.host_computer.get_name
+CURRENT_USER = active_user
+CURRENT_PATH = current_path
+CURRENT_SHELL = get_shell
+CURRENT_CREDENTIALS = {}
+WORK_DIR_PATH = function
+    if globals.CURRENT_USER == "root" then 
+        return "/root"
+    else
+        return "/home/" + globals.CURRENT_USER
+    end if
+end function
+SHELL_STACK = [] //{"shell": shell, "credentials": creds}
+LAN = null
+COLOR = {}
+COLOR.FILE_COLOR = "<color=#6F6FEE>"
+COLOR.SHELL_USER = "<color=#6F6FEE>"
+if CURRENT_USER == "root" then globals.COLOR.SHELL_USER = "<color=#D15858>"
+COLOR.HIDEN_FILE = "<color=#9479B3>"
+COLOR.SHELL_PATH = "<color=white>"
+COLOR.SHELL_BAR = "<color=#3590C5>"
+COLOR.SHELL_INPUT = "<color=#9CD3D9>"
+COLOR.COMMAND_OUTPUT = "<color=white>"
+HACK_CORE = new PXC
+HACK_CORE.initializeEnvironment
+//// global variables end////
+
+
+//// utils begin////
+UTILS = {}
+UTILS.useComputerGetFile = function(file_compuer, file_path, file_type=null) // file_type = "folder", "file", null
+    file_path_list = file_path.split("/")[1:]
+
+    for i in range(0, file_path_list.len-1, 1)
+
+        each_file_path = file_path_list[i]
+
+        if each_file_path == "." then
+            file_path_list[i] = ""
+        else if each_file_path == ".." then
+            file_path_list[i] = ""
+            if i - 1 >= 0 then
+                file_path_list[i - 1] = ""
+            end if
+        end if
+
+    end for
+
+    file_path = "/"
+    for each_file_path in file_path_list
+        if each_file_path != "" then file_path = file_path + each_file_path + "/"
+        
+    end for
+
+    target_file = file_compuer.File(file_path)
+   
+    if not target_file then return "No such file or directory: "
+    if not target_file.has_permission("r") then return "permission denied: "
+    if not is_folder(target_file) and file_type == "folder" then return "not a directory: " 
+    if is_folder(target_file) and file_type == "file" then return "Is a directory: "
+
+    return target_file
+
+end function
+
+UTILS.getPathWithInputPath = function(input_path)
+    result_path = null
+
+    if input_path.startswith("/") then
+
+        result_path = input_path
+
+    else if input_path.len > 0 and input_path[0] == "~" and (input_path.len <= 1 or input_path[1] == "/") then
+
+        result_path = globals.WORK_DIR_PATH + input_path[1:]
+
+    else if globals.CURRENT_PATH == "/" then
+        
+        result_path = globals.CURRENT_PATH + input_path
+
+    else 
+
+        result_path = globals.CURRENT_PATH + "/" + input_path
+
+    end if
+
+    return result_path
+end function
+
+UTILS.useShellGetActiveUser = function(shell)
+    if shell.host_computer.File("/root").has_permission("w") then return "root"
+
+    for each_folder in shell.host_computer.File("/home").get_folders
+        if each_folder.name != "guest" and each_folder.has_permission("w") then return each_folder.name
+    end for
+
+    return "guest"
+end function
+
+UTILS.useShell = function(shell, creds)
+    globals.SHELL_STACK.push({"credentials": globals.CURRENT_CREDENTIALS, "shell": globals.CURRENT_SHELL})
+    globals.CURRENT_SHELL = shell
+    globals.CURRENT_CREDENTIALS = creds
+    globals.HOST_NAME = globals.CURRENT_SHELL.host_computer.get_name
+    globals.CURRENT_USER = globals.UTILS.useShellGetActiveUser(globals.CURRENT_SHELL)
+    globals.CURRENT_PATH = globals.WORK_DIR_PATH
+    globals.COLOR.SHELL_USER = "<color=#6F6FEE>"
+    if globals.CURRENT_USER == "root" then globals.COLOR.SHELL_USER = "<color=#D15858>"
+end function
+
+UTILS.printToCLI = function(message)
+    print(globals.COLOR.COMMAND_OUTPUT+message+"</color>")
+end function
+UTILS.inputFromCLI = function(message, is_pass=false)
+    return user_input(globals.COLOR.COMMAND_OUTPUT+message, is_pass)
+end function
+
+UTILS.isHostShell = function
+    return globals.CURRENT_SHELL.host_computer.local_ip == get_shell.host_computer.local_ip and globals.CURRENT_SHELL.host_computer.public_ip == get_shell.host_computer.public_ip    
+end function
+//// utils end  ////
+
+
+////registery commands begin////
+COMMANDS = {}
+COMMANDS.ls = {}
+COMMANDS.ls.parser = Argparse.init
+COMMANDS.ls.parser.addArgument("-l", "flag", true, false)
+COMMANDS.ls.parser.addArgument("-a", "flag", true, false)
+COMMANDS.ls.execute = function(args)
+    if not args then args = []
+    input_path = null
+    
+    if args.len < 1 or args[-1].startswith("-") then
+        input_path = ""
+        args = globals.COMMANDS.ls.parser.parseArgs(args)
+    else
+        input_path = args[-1]
+        args = globals.COMMANDS.ls.parser.parseArgs(args[:-1])
+    end if
+
+    if typeof(args) == "string" then
+        UTILS.printToCLI(args)
+        return
+    end if
+
+    arg_input_path = input_path
+    
+    target_path = UTILS.getPathWithInputPath(input_path)
+    target_file = UTILS.useComputerGetFile(globals.CURRENT_SHELL.host_computer, target_path, "folder")
+
+    if typeof(target_file) == "string" then
+        UTILS.printToCLI("ls: " + target_file + arg_input_path)
+        return
+    end if
+
+    sub_files = target_file.get_folders + target_file.get_files
+    output = ""
+    for each_sub_file in sub_files
+        file_name = each_sub_file.name
+        permission = each_sub_file.permissions
+        file_owner = each_sub_file.owner
+        file_size = each_sub_file.size
+        file_group = each_sub_file.group
+
+        if args["-a"] or not file_name.startswith(".") then
+            if not file_name.startswith(".")then
+                file_name = globals.COLOR.COMMAND_OUTPUT+each_sub_file.name+"</color>"
+            else
+                file_name = globals.COLOR.HIDEN_FILE+each_sub_file.name+"</color>"
+            end if
+            if is_folder(each_sub_file) then file_name = globals.COLOR.FILE_COLOR+each_sub_file.name+"</color>"
+
+            if output.len > 0 then 
+                output = output + "\n"
+            end if
+            if args["-l"] then
+                output = output + globals.COLOR.COMMAND_OUTPUT+ permission + " " + file_owner + " " + file_group + " " + file_size + " 00:00 </color>" + file_name
+            else
+                output = output + file_name
+            end if
+        end if
+    end for
+    
+    UTILS.printToCLI(format_columns(output))
+
+end function
+COMMANDS.cd = {}
+COMMANDS.cd.parser = null
+COMMANDS.cd.execute = function(args)
+
+    input_path = args
+    if not args then 
+        input_path = [""]
+        args = [""]
+    end if
+    args = args[0]
+    input_path = input_path[0]
+    arg_input_path = input_path
+
+    target_path = UTILS.getPathWithInputPath(input_path)
+    target_file = UTILS.useComputerGetFile(globals.CURRENT_SHELL.host_computer, target_path, "folder")
+
+    if typeof(target_file) == "string" then
+        UTILS.printToCLI("cd: "+target_file+arg_input_path)
+        return
+    end if
+
+    globals.CURRENT_PATH = target_file.path
+
+end function
+COMMANDS.cat = {}
+COMMANDS.cat.parser = null
+COMMANDS.cat.execute = function(args)
+    input_path = args
+    if not args then 
+        input_path = [""]
+        args = [""]
+    end if
+    args = args[0]
+    input_path = input_path[0]
+    arg_input_path = input_path
+
+    target_path = UTILS.getPathWithInputPath(input_path)
+    target_file = UTILS.useComputerGetFile(globals.CURRENT_SHELL.host_computer, target_path, "file")
+
+    if typeof(target_file) == "string" then
+        UTILS.printToCLI("cat: "+target_file+arg_input_path)
+        return
+    end if
+
+    UTILS.printToCLI(target_file.get_content)
+end function
+COMMANDS.sudo = {}
+COMMANDS.sudo.parser = Argparse.init
+COMMANDS.sudo.parser.addArgument("-u", "value", false)
+COMMANDS.sudo.execute = function(args)
+    if not globals.UTILS.isHostShell then 
+        UTILS.printToCLI("sudo: Can not switch user of remote shell")
+        return
+    end if
+    if not args then args = []
+
+    args = globals.COMMANDS.sudo.parser.parseArgs(args)
+    if typeof(args) == "string" then
+        UTILS.printToCLI(args)
+        return
+    end if
+
+    inpu_pass = null
+    if globals.CURRENT_CREDENTIALS.hasIndex(args["-u"]) then
+        input_pass = globals.CURRENT_CREDENTIALS[args["-u"]]
+    else
+        input_pass = globals.UTILS.inputFromCLI("Password: ", true)
+        globals.CURRENT_CREDENTIALS[args["-u"]] = input_pass
+    end if
+    
+    target_shell = get_shell(args["-u"], input_pass)
+    if not target_shell then 
+        UTILS.printToCLI("sudo: Authentication failure")
+        return
+    end if
+    
+    globals.CURRENT_SHELL = target_shell
+    globals.CURRENT_USER = args["-u"]
+    if globals.CURRENT_USER == "root" then
+        globals.WORK_DIR_PATH = "/root"
+        globals.COLOR.SHELL_USER = "<color=#D15858>"
+    else
+        globals.WORK_DIR_PATH = "/home/" + globals.CURRENT_USER
+        globals.COLOR.SHELL_USER = "<color=#6F6FEE>"
+    end if
+
+end function
+COMMANDS.whoami = {}
+COMMANDS.whoami.parser = Argparse.init
+COMMANDS.whoami.execute = function(args)
+    UTILS.printToCLI(globals.CURRENT_USER)
+end function
+COMMANDS.lan = {}
+COMMANDS.lan.parser = null
+COMMANDS.lan.execute = function(args)
+    if not args or args.len > 2 or args.len < 1 then
+        UTILS.printToCLI("Usage: lan [router ip] [opt: lan ip]")
+        return
+    end if
+
+    router_ip = args[0]
+    target_ip = null
+    if args.len == 2 then target_ip = args[-1]
+
+    if not is_valid_ip(router_ip) or (target_ip and not is_valid_ip(target_ip)) then
+        UTILS.printToCLI("Invalid ip")
+        return
+    end if
+
+    lan = globals.HACK_CORE.scanLan(router_ip)
+
+    if not lan then 
+        globals.UTILS.printToCLI("Failed to get lan: " + router_ip)
+        return
+    end if
+    globals.HACK_CORE.getLanExpoits(lan, target_ip)
+    globals.HACK_CORE.getLanCreds(lan)
+
+    if lan.ip.len < 2 then
+        globals.UTILS.printToCLI("No available target")
+        return
+    end if 
+
+    if not router_ip then router_ip = lan.ip[1]
+
+    globals.LAN = lan
+end function
+COMMANDS.shell = {}
+COMMANDS.shell.parser = null
+COMMANDS.shell.execute = function(args)
+    if args and args.len > 1 then
+        UTILS.printToCLI("Usage: shell [opt: lan ip]")
+        return
+    end if
+    
+    target_ip = null
+    if args then target_ip = args[0]
+
+    if not globals.LAN then
+        UTILS.printToCLI("No cached lan")
+        UTILS.printToCLI("Try 'lan' command")
+        return
+    end if
+
+    lan = globals.LAN
+
+    next_shell = null
+    if not target_ip or not lan.data.hasIndex(target_lan_ip) or lan.data[target_lan_ip]["exploits"]["shell"].len < 1 then
+        if target_ip then
+            globals.UTILS.printToCLI("Failed to get target shell: " + target_lan_ip)
+            globals.UTILS.printToCLI("Other available shells: ")
+        else
+            globals.UTILS.printToCLI("Available shells: ")
+        end if
+        
+        available_shells = []
+        for i in range(0, lan.ip.len-1, 1)
+            each_ip = lan.ip[i]
+            if lan.data[each_ip]["exploits"]["shell"].len < 1 then continue
+
+            globals.UTILS.printToCLI(available_shells.len + ": " + each_ip)
+            available_shells.push(lan.data[each_ip]["exploits"]["shell"][0])
+        end for
+        if available_shells.len < 1 then
+            globals.UTILS.printToCLI("None")
+            return
+        end if
+        shell_idx = globals.UTILS.inputFromCLI("Use shell: ").to_int
+        if not available_shells.hasIndex(shell_idx) then return
+        next_shell = available_shells[shell_idx]
+    else
+        globals.UTILS.printToCLI("Using shell: " + target_lan_ip)
+        next_shell = lan.data[target_lan_ip]["exploits"]["shell"][0]
+    end if
+
+    root_pwd = null
+    for each_user in lan.data[next_shell.host_computer.local_ip]["credentials"]["user"].indexes
+        if each_user == "root" then
+            globals.UTILS.printToCLI("Root password found")
+            root_pwd = globals.HACK_CORE.crypto.decipher(lan.data[next_shell.host_computer.local_ip]["credentials"]["user"][each_user])
+            globals.UTILS.printToCLI(root_pwd)
+            break
+        end if
+    end for
+    creds = {}
+    if not root_pwd then
+        UTILS.printToCLI("No root password found")
+    else
+        creds["root"] = root_pwd
+    end if
+    globals.UTILS.useShell(next_shell, creds)
+
+end function
+COMMANDS.xpl = {}
+COMMANDS.xpl.parser = null
+COMMANDS.xpl.execute = function(args)
+    if args and args.len > 1 then
+        UTILS.printToCLI("Usage: xpl [opt: lan ip]")
+        return
+    end if
+
+    target_ip = null
+    if args then target_ip = args[0]
+
+    if not globals.LAN then
+        UTILS.printToCLI("No cached lan")
+        UTILS.printToCLI("Try 'lan' command")
+        return
+    end if
+
+    lan = globals.LAN
+
+    globals.HACK_CORE.getLanExpoits(lan, target_ip)
+    globals.HACK_CORE.getLanCreds(lan)
+end function
+COMMANDS.creds = {}
+COMMANDS.creds.parser = null
+COMMANDS.creds.execute = function(args)
+    if args and args.len > 1 then
+        globals.UTILS.printToCLI("Usage: creds [opt: lan ip]")
+        return
+    end if
+
+    target_ip = null
+    if args then target_ip = args[0]
+
+    if not globals.LAN then
+        globals.UTILS.printToCLI("No cached lan")
+        globals.UTILS.printToCLI("Try 'lan' command")
+        return
+    end if
+
+    printCreds = function(creds_ip)
+        avail_users = []
+        avail_banks = []
+        avail_mails = []
+        users = globals.LAN.data[creds_ip]["credentials"]["user"]
+        banks = globals.LAN.data[creds_ip]["credentials"]["bank"]
+        mails = globals.LAN.data[creds_ip]["credentials"]["mail"]
+        for each_user in users.indexes
+            avail_users.push(each_user + ":" + users[each_user])
+        end for
+        for each_bank in banks.indexes
+            avail_banks.push(each_bank + ":" + banks[each_bank])
+        end for
+        for each_mail in mails.indexes
+            avail_mails.push(each_mail + ":" + mails[each_mail])
+        end for
+        if avail_users.len + avail_banks.len + avail_mails.len < 1 then return
+        globals.UTILS.printToCLI(creds_ip + ": ")
+        if avail_users.len > 0 then
+            globals.UTILS.printToCLI("Users: ")
+            for each_account in avail_users
+                globals.UTILS.printToCLI("  "+each_account)
+            end for
+        end if
+        if avail_banks.len > 0 then
+            globals.UTILS.printToCLI("Banks: ")
+            for each_account in avail_banks
+                globals.UTILS.printToCLI("  "+each_account)
+            end for
+        end if
+        if avail_mails.len > 0 then
+            globals.UTILS.printToCLI("Mails: ")
+            for each_account in avail_mails
+                globals.UTILS.printToCLI("  "+each_account)
+            end for
+        end if
+    end function
+    if not target_ip then
+        for each_ip in globals.LAN.ip
+            printCreds(each_ip)
+        end for
+    else
+        if globals.LAN.ip.indexOf(target_ip) == null then
+            globals.UTILS.printToCLI("No credential of " + target_ip)
+            return
+        else
+            printCreds(target_ip)
+        end if
+    end if
+    
+end function
+COMMANDS["decipher"] = {}
+COMMANDS["decipher"].parser = null
+COMMANDS["decipher"].execute = function(args)
+    if not args or args.len != 1 then
+        UTILS.printToCLI("Usage: decipher [md5]")
+        return
+    end if
+
+    resutl = HACK_CORE.crypto.decipher(args[0])
+    if not resutl then
+        UTILS.printToCLI("Invalid md5 hash")
+        return
+    else
+        UTILS.printToCLI(resutl)
+    end if
+end function
+COMMANDS["terminal"] = {}
+COMMANDS["terminal"].parser = null
+COMMANDS["terminal"].execute = function(args)
+    CURRENT_SHELL.start_terminal
+end function
+COMMANDS["exit"] = {}
+COMMANDS["exit"].parser = null
+COMMANDS["exit"].execute = function(args)
+    if globals.SHELL_STACK.len < 1 then
+        confirm = globals.UTILS.inputFromCLI("Are you sure you want to exit p1an0Xshell?[yes/no]: ")
+        if confirm == "yes" then exit
+        return
+    end if
+    stack = globals.SHELL_STACK.pop
+    shell = stack["shell"]
+    creds = stack["credentials"]
+    globals.UTILS.useShell(shell, creds)
+    globals.SHELL_STACK.pop
+end function
+COMMANDS.jump = {}
+COMMANDS.jump.parser = Argparse.init
+COMMANDS.jump.parser.addArgument("-l", "flag", true, false) // only transfer lib
+COMMANDS.jump.execute = function(args)
+    if not args then args = []
+    args = globals.COMMANDS.jump.parser.parseArgs(args)
+        
+    if globals.UTILS.isHostShell then 
+        globals.UTILS.printToCLI("jump: can not jump to self shell")
+        return
+    end if
+    if not globals.CURRENT_SHELL.host_computer.File(globals.CURRENT_PATH).has_permission("w") then
+        globals.UTILS.printToCLI("jump: permission denied: " + globals.CURRENT_PATH)
+        return
+    end if
+    globals.UTILS.printToCLI("Jumping to wan: " + globals.CURRENT_SHELL.host_computer.public_ip + " lan: " + globals.CURRENT_SHELL.host_computer.local_ip)
+    globals.UTILS.printToCLI("Uploading p1an0Xshell")
+    result = scp(get_shell, program_path, globals.CURRENT_PATH, globals.CURRENT_SHELL)
+    if typeof(result) == "string" then
+        globals.UTILS.printToCLI(result)
+        return
+    end if
+    globals.HACK_CORE.jump(get_shell, globals.CURRENT_PATH, globals.CURRENT_SHELL, args["-l"])
+
+end function
+COMMANDS.clear = {}
+COMMANDS.clear.parser = null
+COMMANDS.clear.execute = function(args)
+    clear_screen
+end function
+COMMANDS["chmod"] = {}
+COMMANDS["chmod"].parser = null
+COMMANDS["chmod"].execute = function(args)
+    if args.len < 2 or args.len > 3 or (args.len == 3 and args[-1] != "-r") then
+        globals.UTILS.printToCLI("Usage: chmod [u,g,o+wrx] [path file/folder] [opt:-r]")
+        return
+    end if
+
+    permission = args[0]
+    input_path = args[1]
+    arg_input_path = input_path
+    is_recursive = false
+    if args.len == 3 and args[-1] == "-r" then is_recursive = true
+
+    target_path = UTILS.getPathWithInputPath(input_path)
+    target_file = UTILS.useComputerGetFile(globals.CURRENT_SHELL.host_computer, target_path, "file")
+
+    if typeof(target_file) == "string" then
+        UTILS.printToCLI("chmod: " + target_file + arg_input_path)
+        return
+    end if
+    
+    if typeof(target_file) == "string" then
+        globals.UTILS.printToCLI("Usage: chmod [u,g,o+wrx] [path file/folder] [opt:-r]")
+        return
+    end if
+
+    result = target_file.chmod(permission, is_recursive)
+    if typeof(result) == "string" then
+        globals.UTILS.printToCLI(result)
+    end if
+end function
+COMMANDS.rm = {}
+COMMANDS.rm.parser = null
+COMMANDS.rm.execute = function(args)
+    if args.len < 1 or args.len > 2 or (args.len == 2 and args[0] != "-r") then
+        globals.UTILS.printToCLI("Usage: rm [opt: -r] [path file/folder]")
+        return
+    end if
+
+    input_path = null
+    file_type = "file"
+    if args.len == 1 then
+        input_path = args[0]
+    else
+        input_path = args[1]
+        file_type = "folder"
+    end if
+    arg_input_path = input_path
+
+    target_path = globals.UTILS.getPathWithInputPath(input_path)
+    target_file = globals.UTILS.useComputerGetFile(globals.CURRENT_SHELL.host_computer, target_path, file_type)
+
+    if typeof(target_file) == "string" then
+        globals.UTILS.printToCLI("rm: " + target_file + arg_input_path)
+        return
+    end if
+
+    if not target_file.has_permission("w") then 
+        globals.UTILS.printToCLI("rm: Permission denied: " + arg_input_path)
+        return
+    end if
+
+    target_file.delete
+
+end function
+COMMANDS.cl = {}
+COMMANDS.cl.parser = null
+COMMANDS.cl.execute = function(args)
+    if not args then args = []
+    if (args.len == 1 and args[0] != "-l") or args.len > 1 then
+        globals.UTILS.printToCLI("Usage: cl [opt: -l]")
+        return
+    end if
+
+    is_clear_lan = false
+    if args.len == 1 and args[0] == "-l" then is_clear_lan = true
+
+    if not globals.HACK_CORE.useComputerClearLog(globals.CURRENT_SHELL.host_computer) then
+        globals.UTILS.printToCLI("Failed to clear local log")
+    else
+        globals.UTILS.printToCLI("Clear local log successfully")
+    end if
+
+    if is_clear_lan and not globals.LAN then
+        globals.UTILS.printToCLI("No cached lan")
+        return
+    end if
+    if is_clear_lan then globals.HACK_CORE.clearLanLog(globals.LAN)
+end function
+COMMANDS["ping"] = {}
+COMMANDS["ping"].parser = null
+COMMANDS["ping"].execute = function(args)
+    if not args or args.len != 1 then
+        globals.UTILS.printToCLI("Usage: ping [ip]")
+        return
+    end if
+    target_ip = args[0]
+    if not is_valid_ip(target_ip) then
+        globals.UTILS.printToCLI("ping: Invalid ip")
+        return
+    end if
+
+    result = globals.CURRENT_SHELL.ping(target_ip)
+    if typeof(result) == "string" then
+        globals.UTILS.printToCLI(result)
+        return
+    end if
+    if result then
+        globals.UTILS.printToCLI("Reply from " + target_ip)
+    else
+        globals.UTILS.printToCLI("Target is unrecheable")
+    end if
+end function
+COMMANDS["bd"] = {}
+COMMANDS["bd"].parser = null
+COMMANDS["bd"].execute = function(args)
+    if not globals.UTILS.isHostShell then
+        globals.UTILS.printToCLI("bd: Can not leave backdoor on remote shell")
+        return
+    end if
+    if not args or args.len < 2 or args.len > 3 then
+        globals.UTILS.printToCLI("Usage: bd [host ip] [host port] [opt: process name]")
+        return
+    end if
+
+    host_ip = args[0]
+    host_port = args[1]
+    ps_name = "ps"
+    if args.len == 3 then ps_name = args[2]
+
+    if not is_valid_ip(host_ip) then
+        globals.UTILS.printToCLI("bd: Invalid ip: " + host_ip)
+        return
+    end if
+    if not globals.HACK_CORE.leaveBackdoor(host_ip, host_port, ps_name) then
+        globals.UTILS.printToCLI("bd: Failed to leave backdoor")
+        return
+    end if
+    globals.UTILS.printToCLI("bd: Leaved backdoor: " + ps_name)
+end function
+COMMANDS["ps"] = {}
+COMMANDS["ps"].parser = null
+COMMANDS["ps"].execute = function(args)
+    output = globals.CURRENT_SHELL.host_computer.show_procs
+    globals.UTILS.printToCLI(format_columns(output))
+end function
+COMMANDS["kill"] = {}
+COMMANDS["kill"].parser = null
+COMMANDS["kill"].execute = function(args)
+    if not args or args.len != 1 then
+        globals.UTILS.printToCLI("Usage: kill [PID]")
+        return
+    end if
+
+    pid = args[0].to_int
+    if typeof(pid) != "number" then
+        globals.UTILS.printToCLI("kill: Invalid pid: " + pid)
+        return
+    end if
+    output = globals.CURRENT_SHELL.host_computer.close_program(pid)
+    if output == true then 
+        globals.UTILS.printToCLI("kill: Process " + pid + " closed")
+        return
+    end if
+    if output then
+        globals.UTILS.printToCLI("kill: " + output)
+        return
+    end if
+    globals.UTILS.printToCLI("kill: Process " + pid + " not found")
+end function
+////registery commands end////
+getInput = function()
+    suffix = "$"
+    if globals.CURRENT_USER == "root" then suffix = "#"
+    
+    output = char(10)+globals.COLOR.SHELL_BAR+"<pos=04>———(</color><b>"+globals.COLOR.SHELL_USER+globals.CURRENT_USER+"@"+globals.HOST_NAME+"</color></b>"+globals.COLOR.SHELL_BAR+")—[</color><b>"+globals.COLOR.SHELL_PATH+globals.CURRENT_PATH[:len(globals.WORK_DIR_PATH)].replace(globals.WORK_DIR_PATH, "~") + globals.CURRENT_PATH[len(globals.WORK_DIR_PATH):]+"</b>"+globals.COLOR.SHELL_BAR+"]<voffset=-0.5em>"+"<pos=00>|<voffset=-1em><space=-0.6em>|<voffset=-1.5em><pos=04>——<b></color>"+globals.COLOR.SHELL_USER+suffix+"</color></b>"+globals.COLOR.SHELL_INPUT+" "
+    input_content = user_input(output).split(" ")
+    input_command = []
+    for each_arg in input_content
+        if each_arg then input_command.push(each_arg)
+    end for
+    return input_command
+end function
+COMMANDS["rs"] = {}
+COMMANDS["rs"].parser = null
+COMMANDS["rs"].execute = function(args)
+    rshell_list = globals.HACK_CORE.getRshellList
+    if rshell_list == false then
+        globals.UTILS.printToCLI("rs: Internal error")
+        return
+    end if
+    if rshell_list.len < 1 then
+        globals.UTILS.printToCLI("rs: No available revere shell")
+        return
+    end if
+    for i in rshell_list.indexes
+        each_shell = rshell_list[i]
+        globals.UTILS.printToCLI(i + ": wan: " + each_shell.host_computer.public_ip + " lan: " + each_shell.host_computer.local_ip)
+    end for
+    shell_idx = globals.UTILS.inputFromCLI("Use shell: ").to_int
+
+    if not rshell_list.hasIndex(shell_idx) then return
+    next_shell = rshell_list[shell_idx]
+    globals.UTILS.printToCLI("Using shell: wan: " + next_shell.host_computer.public_ip + " lan: " + next_shell.host_computer.local_ip)
+    globals.UTILS.useShell(next_shell, {})
+end function
+COMMANDS["pe"] = {}
+COMMANDS["pe"].parser = null
+COMMANDS["pe"].execute = function(args)
+
+end function
+
+
+executeCommand = function(command_name, command_args)
+    if not globals.COMMANDS.hasIndex(command_name) then
+        UTILS.printToCLI("Command '"+command_name+"' not found")
+        return
+    end if
+    globals.COMMANDS[command_name].execute(command_args)
+end function
+
+while true
+    input_command = getInput
+    if not input_command then continue
+
+    command_name = input_command[0]
+    command_args = input_command[1:]
+    if command_args.len < 1 then command_args = null
+    executeCommand(command_name, command_args)
+
+end while

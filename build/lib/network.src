@@ -1,0 +1,89 @@
+Lan={"ip":null,"father_idx":null,"data":null,"wan_ip":null}
+Lan.init=function()
+result=new self
+result.ip=[]
+result.father_idx=[]
+result.data={}
+// {ip: {
+//   "ports": [number, ...],
+//   "exploits": {"file": [], "shell": [], "computer": [], "string": [], "number": []},
+//   "credentials": {"user": {username: password}, "bank": {}, "mail": {}}
+// }}
+result.wan_ip=null
+return result
+end function
+Lan.isNodeExist=function(node_ip)
+node_idx=self.ip.indexOf(node_ip)
+if node_idx==null then
+return false
+else
+return true
+end if
+end function
+Lan.addNode=function(node_ip,father_ip,port_list)
+if self.isNodeExist(node_ip) then
+return false
+end if
+self.ip.push(node_ip)
+father_index=null
+if not father_ip then
+father_index=-1
+else
+father_index=self.ip.indexOf(father_ip)
+if father_index==null then
+father_index=-1
+end if
+end if
+self.father_idx.push(father_index)
+self.data[node_ip]={"ports":port_list,"exploits":{"file":[],"shell":[],"computer":[],"string":[],"number":[]},"credentials":{"user":{},"bank":{},"mail":{}}}
+return true
+end function
+Lan.addRoot=function(root_lan_ip,root_wan_ip,port_list)
+if not self.addNode(root_lan_ip,null,port_list) then
+return false
+end if
+self.wan_ip=root_wan_ip
+return true
+end function
+Lan.addPort=function(node_ip,port_num)
+if not self.isNodeExist(node_ip) then
+return false
+end if
+if not self.data[node_ip]["ports"].indexOf(port_num)==null then
+return false
+end if
+self.data[node_ip]["ports"].push(port_num)
+return true
+end function
+Lan.addPorts=function(node_ip,port_num_list)
+if not self.isNodeExist(node_ip) then
+return false
+end if
+self.data[node_ip]["ports"]=self.data[node_ip]["ports"]+port_num_list
+return true
+end function
+Lan.addExploit=function(node_ip,exploit)
+if not self.isNodeExist(node_ip) then
+return false
+end if
+if not self.data[node_ip]["exploits"].hasIndex(typeof(exploit)) then
+return false
+end if
+self.data[node_ip]["exploits"][typeof(exploit)].push(exploit)
+return true
+end function
+Lan.getNodeData=function(node_ip)
+if self.isNodeExist(node_ip) then
+return self.data[node_ip]
+else
+return null
+end if
+end function
+Lan.serializeCreds=function()
+resutl={}
+// {ip: {"user": {username: password}, "bank": {}, "mail": {}}}
+for each_ip in self.data.indexes
+resutl[each_ip]=self.data[each_ip]["credentials"]
+end for
+return toJSON(resutl)
+end function

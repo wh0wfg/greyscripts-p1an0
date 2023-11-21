@@ -1,0 +1,23 @@
+// Incompatible with current p1an0Xcore
+
+import_code("../lib/p1an0Xcore.src")
+
+generateRandomIP = function()
+    a = floor(rnd * (1 - 1 + 255) + 1)
+    b = floor(rnd * (1 - 1 + 255) + 1)
+    c = floor(rnd * (1 - 1 + 255) + 1)
+    d = floor(rnd * (1 - 1 + 255) + 1)
+    return a + "." + b + "." + c + "." + d
+end function
+
+pxc = new PXC
+pxc.initializeEnvironment
+banks_result = []
+
+while true
+    target_wan_ip = generateRandomIP
+    while is_lan_ip(target_wan_ip) or not is_valid_ip(target_wan_ip)
+        target_wan_ip = generateRandomIP
+    end while
+    pxc.getRemoteTargetBankAccounts(target_wan_ip, banks_result)
+end while

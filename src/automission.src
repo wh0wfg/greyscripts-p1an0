@@ -1,0 +1,34 @@
+// Incompatible with current p1an0Xcore
+
+import_code("../lib/mail.src")
+import_code("../lib/p1an0Xcore.src")
+
+program_name = program_path.split("/")[-1]
+if params.len < 2 or params.len > 3 then exit("Usage: " + program_name + " [mail username] [password]")
+
+mail = new Mail
+mail.loginMail(params[0], params[1])
+missions = mail.getCredentialsNeededMission
+
+logger = new Logger
+
+pxc = new PXC
+pxc.initializeEnvironment
+
+missions_result = []
+for each_mission in missions
+    target_username = each_mission["target_username"]
+    target_wan_ip = each_mission["target_wan_ip"]
+    target_lan_ip = each_mission["target_lan_ip"]
+    mail_id = each_mission["mail_id"]
+    pwd = pxc.getRemoteTargetCredential(target_wan_ip, target_lan_ip, target_username)
+    if pwd then
+        missions_result.push(target_username + ":" + pwd)
+    else
+        mail.deleteMail(mail_id)
+    end if
+end for
+
+for each_mission_result in missions_result
+    logger.info(each_mission_result)
+end for

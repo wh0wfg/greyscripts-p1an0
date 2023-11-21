@@ -1,0 +1,50 @@
+// by p1an0 2023-11-12
+
+Mail = {
+    "user": null,
+    "pass": null,
+    "metaMail": null,
+}
+
+Mail.loginMail = function(user, pass)
+    self.user = user
+    self.pass = pass
+    self.metaMail = mail_login(self.user, self.pass)
+end function
+
+
+Mail.getCredentialsNeededMission = function()
+    missions = []
+    WAN_PREFIX = "The remote ip of the victim is <b>"
+    LAN_PREFIX = "The victim's ip LAN is <b>"
+    for each_fetch in self.metaMail.fetch
+        mail_feach = each_fetch.split(char(10))[2:]
+        mail_subject = mail_feach[2].split(": ")[-1]
+
+        if mail_subject == "Mission Contract" then
+            mail_id = mail_feach[0].split(": ")[-1]
+            mail_from = mail_feach[1].split(": ")[-1]
+
+            mail_content = self.metaMail.read(mail_id).split(char(10))[1:]
+
+            target_username = null
+            username_content = mail_content[2]
+            if username_content.indexOf("<b>") then
+                target_username = username_content[username_content.indexOf("<b>")+3:username_content.indexOf("</b>")]
+            end if
+
+            ip_content = mail_content[3]
+            target_wan_ip = ip_content[ip_content.indexOf(WAN_PREFIX) + WAN_PREFIX.len: ip_content.indexOf("</b>")]
+            lan_prefix_index = ip_content.indexOf(LAN_PREFIX)
+            target_lan_ip = ip_content[lan_prefix_index + LAN_PREFIX.len: ip_content.indexOf("</b>", lan_prefix_index)]
+            
+            missions.push({"mail_id": mail_id, "mail_address": mail_from, "target_username": target_username, "target_wan_ip": target_wan_ip, "target_lan_ip": target_lan_ip})
+        end if
+        
+    end for
+    return missions
+end function
+
+Mail.deleteMail = function(mail_id)
+    self.metaMail.delete(mail_id)
+end function

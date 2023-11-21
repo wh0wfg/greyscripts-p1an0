@@ -1,0 +1,8 @@
+// python-like method extension for string
+// by p1an0 2023-11-13
+string.startswith=function(input_str,beg_idx=0,end_idx=null)
+if not end_idx then
+end_idx=self.len
+end if
+return self[beg_idx:end_idx][0:input_str.len]==input_str
+end function
