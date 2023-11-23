@@ -1,3 +1,209 @@
+import_code("./lib/josn.src")
+
+Parser = {}
+Parser.source = ""
+Parser._sourceLen = 0
+Parser._p = 0		// index of next character to consume in source
+
+Parser.init = function(source)
+	self.source = source
+	self._sourceLen = source.len
+end function
+
+Parser.parse = function(source=null)
+	if source != null then self.init source
+	self._p = 0
+	return self._parseElement
+end function
+
+whitespace = " " + char(9) + char(10) + char(13)
+Parser._skipWhitespace = function()
+	while self._p < self._sourceLen
+		c = self.source[self._p]
+		if whitespace.indexOf(c) == null then break
+		self._p = self._p + 1
+	end while
+end function
+		
+Parser._parseElement = function()
+	return self._parseValue	// for now!
+end function
+
+Parser._parseValue = function()
+	self._skipWhitespace
+	c = self.source[self._p]
+	if c == """" then return self._parseString
+	if "0123456789-.".indexOf(c) != null then return self._parseNumber
+	if c == "[" then return self._parseList
+	if c == "{" then return self._parseMap
+	if c == "t" and self.source[self._p:self._p+4] == "true" then
+		self._p = self._p + 4
+		return true
+	end if
+	if c == "f" and self.source[self._p:self._p+5] == "false" then
+		self._p = self._p + 5
+		return false
+	end if
+	if c == "n" and self.source[self._p:self._p+4] == "null" then
+		self._p = self._p + 4
+		return null
+	end if
+end function
+
+Parser._parseList = function()
+	self._p = self._p + 1		// skip "["
+	self._skipWhitespace
+	result = []
+	while self._p < self._sourceLen
+		c = self.source[self._p]
+		if c == "]" then break
+		result.push self._parseElement
+		self._skipWhitespace
+		// after an element, we should have either a comma or a ']'
+		c = self.source[self._p]
+		if c == "," then
+			self._p = self._p + 1
+			self._skipWhitespace
+		end if
+	end while
+	self._p = self._p + 1
+	return result
+end function
+
+Parser._parseMap = function()
+	self._p = self._p + 1		// skip "{"
+	self._skipWhitespace
+	result = {}
+	while self._p < self._sourceLen
+		// grab the key (must be a string)
+		c = self.source[self._p]
+		if c == "}" then break
+		if c != """" then
+			print "JSON error: object member key must be a string literal"	// ToDo: better error handling!
+			print "Error at position " + self._p + ": " + self.source[self._p-60 : self._p+60]
+			return null
+		end if
+		key = self._parseString
+		self._skipWhitespace
+		
+		// next token must be a colon
+		if self.source[self._p] != ":" then
+			print "JSON error: colon expected"
+			print "Error at position " + self._p + ": " + self.source[self._p-60 : self._p+60]
+			return null
+		end if
+		self._p = self._p + 1
+		self._skipWhitespace
+		
+		// grab the value (could be anything)
+		value = self._parseElement
+		result[key] = value
+		self._skipWhitespace
+		
+		// after a a key/value pair, we should have either a comma or a '}'
+		c = self.source[self._p]
+		if c == "," then
+			self._p = self._p + 1
+			self._skipWhitespace
+		end if
+	end while
+	self._p = self._p + 1
+	return result
+end function
+
+// Get a string literal from the source.  Advance to the next
+// character after the closing quote.
+Parser._parseString = function()
+	self._p = self._p + 1
+	startPos = self._p
+	anyEscape = false
+	while self._p < self._sourceLen
+		c = self.source[self._p]
+		self._p = self._p + 1
+		if c == """" then break
+		if c == "\" then
+			anyEscape = true
+			self._p = self._p + 1
+		end if
+	end while
+	result = self.source[startPos : self._p-1]
+	if anyEscape then result = unescape(result)
+	return result
+end function
+
+// Get a numeric literal from the source.  Advance to the next
+// character after the number.
+Parser._parseNumber = function()
+	startPos = self._p
+	while self._p < self._sourceLen
+		c = self.source[self._p]
+		// Note that we are rather permissive here, consuming things like
+		// 1-2e5+4E7, which is not valid JSON.  But we're not trying to be
+		// a JSON validator; we're just trying to grok valid JSON as quickly
+		// as we can.
+		if "0123456789+-.eE".indexOf(c) == null then break
+		self._p = self._p + 1
+	end while
+	result = val(self.source[startPos : self._p])
+	return result
+end function
+
+// Generating JSON
+
+_listToJSON = function(lst, compact, indent)
+	ws = (_eol + "  "*(indent+1)) * (not compact)
+	parts = ["[", ws]
+	first = true
+	for item in lst
+		if not first then
+			parts.push ","
+			parts.push ws
+		end if
+		parts.push toJSON(item, compact, indent+1)
+		first = false
+	end for
+	if not compact then parts.push _eol + "  " * indent
+	parts.push "]"
+	return join(parts, "")
+end function
+
+_mapToJSON = function(lst, compact, indent)
+	ws = (_eol + "  "*(indent+1)) * (not compact)
+	parts = ["{", ws]
+	first = true
+	for kv in lst
+		if not first then
+			parts.push ","
+			parts.push ws
+		end if
+		parts.push toJSON(str(kv.key))
+		parts.push ":"
+		if not compact then parts.push " "
+		parts.push toJSON(@kv.value, compact, indent+1)
+		first = false
+	end for
+	if not compact then parts.push _eol + "  " * indent
+	parts.push "}"
+	return join(parts, "")
+end function
+
+// General utility data structures
+
+_eol = char(13)
+_hexDigitMap = {}
+for i in range(0,15)
+	if i < 10 then
+		_hexDigitMap[str(i)] = i
+	else
+		_hexDigitMap[char(55+i)] = i	// (lowercase hex digit)
+		_hexDigitMap[char(87+i)] = i	// (uppercase hex digit)
+	end if
+end for
+
+_escapeFrom = ["\\", """", char(8), char(9), char(10), char(12), char(13)]
+_escapeTo = ["\\\\", "\""", "\b","\t","\n","\f","\r"]
+_escapeIndexes = _escapeFrom.indexes
+
 query = "SELECT * FROM Websites WHERE country='U K';"
 
 Lexer = {}
@@ -56,7 +262,8 @@ idx = 0
 idx_stack = []
 ast = {}
 
-requireValue = function(value)
+requireValue = function(value, result_type="requireValue")
+    items = []
     globals.idx_stack.push(globals.idx)
     print "value: " + value + ": " + globals.idx
     if typeof(value) != "list" then
@@ -65,14 +272,16 @@ requireValue = function(value)
     for each_value in value
         if globals.idx >= tokens.len or tokens[globals.idx]["value"] != each_value then
             globals.idx = globals.idx_stack.pop
-            return false
+            return {"flag": false, "type": result_type}
         end if
+        items.push({"token_value": tokens[globals.idx]["value"], "token_type": tokens[globals.idx]["type"]})
         globals.idx = globals.idx + 1
     end for
     globals.idx_stack.pop
-    return true
+    return {"flag": true, "type": result_type, "items": items}
 end function
-requireType = function(types)
+requireType = function(types, result_type="requireType")
+    items = []
     globals.idx_stack.push(globals.idx)
     print "type: " + types + ": " + globals.idx
     if typeof(types) == "string" then
@@ -81,49 +290,58 @@ requireType = function(types)
     for each_type in types
         if globals.idx >= tokens.len or tokens[globals.idx]["type"] != each_type then
             globals.idx = globals.idx_stack.pop
-            return false
+            return {"flag": false, "type": result_type}
         end if
+        items.push({"token_value": tokens[globals.idx]["value"], "token_type": tokens[globals.idx]["type"]})
         globals.idx = globals.idx + 1
     end for
     globals.idx_stack.pop
-    return true
+    return {"flag": true, "type": result_type, "items": items}
 end function
-requireFunc = function(funcs)
+requireFunc = function(funcs, result_type="requireFunc")
+    items = []
     globals.idx_stack.push(globals.idx)
     for each_func in funcs
-        if each_func() == false then
+        func_result = each_func()
+        if func_result.flag == false then
             globals.idx = globals.idx_stack.pop
-            return false
+            return {"flag": false, "type": result_type}
         end if
+        items.push(func_result)
     end for
     globals.idx_stack.pop
-    return true
+    return {"flag": true, "type": result_type, "items": items}
 end function
-epsilonFunc = function
-    return true
+epsilonFunc =  function(result_type="epsilonFunc")
+    return {"flag": true, "type": result_type}
 end function
-optional = function(func)
-    return parallel([@func, @epsilonFunc])
-end function
-repeated = function(func)
-    result = true
-    while result
-        result = func()
-    end while
-    return true
-end function
-parallel = function(funcs)
+parallel = function(funcs, result_type="parallel")
     globals.idx_stack.push(globals.idx)
     for each_func in funcs
-        if each_func() == 0 then
+        func_result = each_func()
+        if func_result.flag == false then
             globals.idx = globals.idx_stack[-1]
         else
             globals.idx_stack.pop
-            return true
+            func_result.type = result_type
+            return func_result
         end if
     end for
     globals.idx_stack.pop
-    return false
+    return {"flag": false, "type": result_type}
+end function
+optional = function(func, result_type="optional")
+    return parallel([@func, @epsilonFunc], result_type)
+end function
+repeated = function(func, result_type="repeated")
+    items = []
+    flag = true
+    while flag
+        result = func()
+        flag = result.flag
+        items.push(result)
+    end while
+    return {"flag": true, "type": result_type, "items": items}
 end function
 
 requireTypeWord = function
@@ -144,12 +362,12 @@ end function
 requireComma = function
     return requireValue(",")
 end function
-
+// production
 selectStatement = function()
     tmp_func = function
         return requireValue("SELECT")
     end function
-    return requireFunc([@tmp_func, @selectElements, @fromClause, @requireValueSemicolon])
+    return requireFunc([@tmp_func, @selectElements, @fromClause, @requireValueSemicolon], "selectStatement")
 end function
 selectElements = function()
     tmp_func1 = function
@@ -158,22 +376,25 @@ selectElements = function()
     tmp_func2 = function
         return repeated(@tmp_func1)
     end function
-    return requireFunc([@selectElement, @tmp_func2])
+    return requireFunc([@selectElement, @tmp_func2], "selectElements")
 end function
 selectElement = function()
-    return parallel([@requireTypeWord, @requireValueStar])
+    return parallel([@requireTypeWord, @requireValueStar], "selectElement")
 end function
 fromClause = function()
     tmp_func1 = function
         return requireValue("FROM") 
     end function
     tmp_func2 = function
-        return requireValue("WHERE") and expression()
+        where_func = function
+            return requireValue("WHERE")
+        end function
+        return requireFunc([@where_func, @expression])
     end function
     tmp_func3 = function
         return optional(@tmp_func2)
     end function
-    return requireFunc([@tmp_func1, @tableSources, @tmp_func3])
+    return requireFunc([@tmp_func1, @tableSources, @tmp_func3], "fromClause")
 end function
 tableSources = function()
     tmp_func1 = function
@@ -182,10 +403,10 @@ tableSources = function()
     tmp_func2 = function
         return repeated(@tmp_func1)
     end function
-    return requireFunc([@tableSource, @tmp_func2])
+    return requireFunc([@tableSource, @tmp_func2], "tableSources")
 end function
 tableSource = function()
-    return parallel([@requireTypeWord, @requireValueStar])
+    return parallel([@requireTypeWord, @requireValueStar], "tableSource")
 end function
 expression = function()
     // tmp_func1 = function
@@ -195,15 +416,18 @@ expression = function()
     //     return expression() and logicalOperator() and expression()
     // end function
     tmp_func3 = function
-        return requireTypeWord() and comparisonOperator() and parallel([@requireTypeWord, @requireTypeNumber, @requireTypeString])
+        parallel_func = function
+            return parallel([@requireTypeWord, @requireTypeNumber, @requireTypeString], "predicate")
+        end function
+        return requireFunc([@requireTypeWord, @comparisonOperator, @parallel_func], "binaryComparisonPredic")
     end function
     // tmp_func4 = function
     //     return expressionAtom()
     // end function
-    return parallel([@tmp_func3])
+    return parallel([@tmp_func3], "expression")
 end function
 expressionAtom= function
-    return parallel([@requireTypeWord, @requireTypeNumber])
+    return parallel([@requireTypeWord, @requireTypeNumber], "expressionAtom")
 end function
 notOperator = function()
     tmp_func1 = function
@@ -212,7 +436,7 @@ notOperator = function()
     tmp_func2 = function
         return requireValue("!")
     end function
-    return parallel([@tmp_func2, @tmp_func2])
+    return parallel([@tmp_func2, @tmp_func2], "notOperator")
 end function
 logicalOperator = function()
     tmp_func1 = function
@@ -231,7 +455,7 @@ logicalOperator = function()
         return requireValue("["|", "|"]")
     end function
     tmp_list = [@tmp_func1, @tmp_func2, @tmp_func3, @tmp_func4, @tmp_func5]
-    return parallel(tmp_list)
+    return parallel(tmp_list, "logicalOperator")
 end function
 comparisonOperator = function()
     tmp_func1 = function
@@ -259,7 +483,7 @@ comparisonOperator = function()
         return requireValue(["!", "="])
     end function
     tmp_list = [@tmp_func1, @tmp_func2, @tmp_func3, @tmp_func4, @tmp_func5, @tmp_func6, @tmp_func7, @tmp_func8]
-    return parallel(tmp_list)
+    return parallel(tmp_list, "comparisonOperator")
 end function
 
 while true
@@ -268,7 +492,9 @@ while true
     globals.idx = 0
     globals.idx_stack = []
     print globals.tokens
-    if globals.selectStatement and globals.idx == globals.tokens.len then
+    resutl = selectStatement
+    if resutl.flag and globals.idx == globals.tokens.len then
         print "SUCCESS!"
+        print toJSON(resutl)
     end if
 end while
