@@ -56,10 +56,10 @@ idx = 0
 idx_stack = []
 ast = {}
 
-requireString = function(value)
+requireValue = function(value)
     globals.idx_stack.push(globals.idx)
-    print "string: " + value + ": " + globals.idx
-    if typeof(value) == "string" then
+    print "value: " + value + ": " + globals.idx
+    if typeof(value) != "list" then
         value = [value]
     end if
     for each_value in value
@@ -84,6 +84,17 @@ requireType = function(types)
             return false
         end if
         globals.idx = globals.idx + 1
+    end for
+    globals.idx_stack.pop
+    return true
+end function
+requireFunc = function(funcs)
+    globals.idx_stack.push(globals.idx)
+    for each_func in funcs
+        if each_func() == false then
+            globals.idx = globals.idx_stack.pop
+            return false
+        end if
     end for
     globals.idx_stack.pop
     return true
@@ -124,39 +135,57 @@ end function
 requireTypeString = function
     return requireType("string")
 end function
-requireStringStar = function
-    return requireString("*")
+requireValueStar = function
+    return requireValue("*")
 end function
-requireStringSemicolon = function
-    return requireString(";")
+requireValueSemicolon = function
+    return requireValue(";")
+end function
+requireComma = function
+    return requireValue(",")
 end function
 
 selectStatement = function()
-    return requireString("SELECT") and selectElements() and fromClause() and requireStringSemicolon()
+    tmp_func = function
+        return requireValue("SELECT")
+    end function
+    return requireFunc([@tmp_func, @selectElements, @fromClause, @requireValueSemicolon])
 end function
 selectElements = function()
-    tmp_func = function
-        return requireString(",") and selectElement()
+    tmp_func1 = function
+        return requireFunc([@requireComma, @selectElement])
     end function
-    return selectElement() and repeated(@tmp_func)
+    tmp_func2 = function
+        return repeated(@tmp_func1)
+    end function
+    return requireFunc([@selectElement, @tmp_func2])
 end function
 selectElement = function()
-    return parallel([@requireTypeWord, @requireStringStar])
+    return parallel([@requireTypeWord, @requireValueStar])
 end function
 fromClause = function()
-    tmp_func = function
-        return requireString("WHERE") and expression()
+    tmp_func1 = function
+        return requireValue("FROM") 
     end function
-    return requireString("FROM") and tableSources() and optional(@tmp_func)
+    tmp_func2 = function
+        return requireValue("WHERE") and expression()
+    end function
+    tmp_func3 = function
+        return optional(@tmp_func2)
+    end function
+    return requireFunc([@tmp_func1, @tableSources, @tmp_func3])
 end function
 tableSources = function()
-    tmp_func = function
-        return requireString(",") and tableSource()
+    tmp_func1 = function
+        return requireFunc([@requireComma, @tableSource])
     end function
-    return tableSource() and repeated(@tmp_func)
+    tmp_func2 = function
+        return repeated(@tmp_func1)
+    end function
+    return requireFunc([@tableSource, @tmp_func2])
 end function
 tableSource = function()
-    return parallel([@requireTypeWord, @requireStringStar])
+    return parallel([@requireTypeWord, @requireValueStar])
 end function
 expression = function()
     // tmp_func1 = function
@@ -178,56 +207,56 @@ expressionAtom= function
 end function
 notOperator = function()
     tmp_func1 = function
-        return requireString("NOT")
+        return requireValue("NOT")
     end function
     tmp_func2 = function
-        return requireString("!")
+        return requireValue("!")
     end function
     return parallel([@tmp_func2, @tmp_func2])
 end function
 logicalOperator = function()
     tmp_func1 = function
-        return requireString("AND")
+        return requireValue("AND")
     end function
     tmp_func2 = function
-        return requireString(["&", "&"])
+        return requireValue(["&", "&"])
     end function
     tmp_func3 = function
-        return requireString("XOR")
+        return requireValue("XOR")
     end function
     tmp_func4 = function
-        return requireString("OR")
+        return requireValue("OR")
     end function
     tmp_func5 = function
-        return requireString("["|", "|"]")
+        return requireValue("["|", "|"]")
     end function
     tmp_list = [@tmp_func1, @tmp_func2, @tmp_func3, @tmp_func4, @tmp_func5]
     return parallel(tmp_list)
 end function
 comparisonOperator = function()
     tmp_func1 = function
-        return requireString("=")
+        return requireValue("=")
     end function
     tmp_func2 = function
-        return requireString(">")
+        return requireValue(">")
     end function
     tmp_func3 = function
-        return requireString("<")
+        return requireValue("<")
     end function
     tmp_func4 = function
-        return requireString(["<", "="])
+        return requireValue(["<", "="])
     end function
     tmp_func5 = function
-        return requireString([">", "="])
+        return requireValue([">", "="])
     end function  
     tmp_func6 = function
-        return requireString(["<", ">"])
+        return requireValue(["<", ">"])
     end function
     tmp_func7 = function
-        return requireString(["<", "=", ">"])
+        return requireValue(["<", "=", ">"])
     end function
     tmp_func8 = function
-        return requireString(["!", "="])
+        return requireValue(["!", "="])
     end function
     tmp_list = [@tmp_func1, @tmp_func2, @tmp_func3, @tmp_func4, @tmp_func5, @tmp_func6, @tmp_func7, @tmp_func8]
     return parallel(tmp_list)
