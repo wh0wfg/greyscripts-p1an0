@@ -1,0 +1,13 @@
+selectElement
+    : 
+    ;
+
+selectElements
+    : selectElement (',' selectElement )*
+    ;
+
+querySpecification
+    : SELECT selectElements fromClause
+    ;
+
+add("selectStatement", )

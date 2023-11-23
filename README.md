@@ -58,6 +58,6 @@ pystring.src: seems useless
 * [X] p1an0Xcore.src: Functions about autohack isolated from p1an0Xshell.src
 * [X] network.src: LAN tree structure management
 * [ ] database.src: Distributed storage and remote database services
-* [ ] session.src: Use the game's existing services to implement http or tcp/udp-like protocols
+* [ ] socket.src: Use the game's existing services to implement http or tcp/udp-like protocols
 * [ ] hashlib.src: Implementing common cryptographic algorithms
 * [ ] api document or annotation of functions

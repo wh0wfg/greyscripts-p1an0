@@ -1,0 +1,245 @@
+query = "SELECT * FROM Websites WHERE country='U K';"
+
+Lexer = {}
+Lexer.tokenize = function(expression)
+   result = [] // [{"type": type, "value": value}, ...]
+   while expression
+      for each_rule in self.rules
+         type = each_rule["type"]
+         ignore = each_rule["ignore"]
+         value = null
+
+         for each_regex in each_rule["regex"]
+            regex_result = expression.matches(each_regex)
+            for each in regex_result.indexes
+               value = regex_result[each]
+               break
+            end for
+            if value then break
+         end for
+
+         if value then
+            expression = expression[value.len:]
+            if ignore then break
+            result.push({"type": type, "value": value})
+            break
+         end if
+      end for
+   end while
+   return result
+end function
+Lexer.addRule = function(type, regex, ignore=false)
+   self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
+end function
+Lexer.init = function
+   result = new Lexer
+   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
+   return result
+end function
+
+lexer = Lexer.init
+lexer.addRule("whitespace", ["^(\s+)"], true)
+lexer.addRule("reserved", ["^(SELECT|WHERE|UPDATE|FROM|SET|DELETE)\b", "^(select|where|update|from|set|delete)\b"])
+lexer.addRule("number", ["^([0-9]+(\.[0-9]+)?|0x[0-9a-fA-F]+|0b[01]+)\b"])
+lexer.addRule("word", ["^([a-zA-Z0-9_]+)", "^(\$\{[a-zA-Z0-9_]+\})"])
+lexer.addRule("string", ["^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))", "^((?=')(?:'[^'\\]*(?:\\[\s\S][^'\\]*)*'))", "^((?=`)(?:`[^`\\]*(?:\\[\s\S][^`\\]*)*`))"])
+lexer.addRule("special", ["^(\(|\))", "^(!=|<>|==|<=|>=|!<|!>|\|\||::|->>|->|~~\*|~~|!~~\*|!~~|~\*|!~\*|!~|.)"])
+
+Parser = {}
+Parser.init = function
+    result = new Parser
+    return result
+end function
+
+tokens = globals.lexer.tokenize(query)
+idx = 0
+idx_stack = []
+ast = {}
+
+requireString = function(value)
+    globals.idx_stack.push(globals.idx)
+    print "string: " + value + ": " + globals.idx
+    if typeof(value) == "string" then
+        value = [value]
+    end if
+    for each_value in value
+        if globals.idx >= tokens.len or tokens[globals.idx]["value"] != each_value then
+            globals.idx = globals.idx_stack.pop
+            return false
+        end if
+        globals.idx = globals.idx + 1
+    end for
+    globals.idx_stack.pop
+    return true
+end function
+requireType = function(types)
+    globals.idx_stack.push(globals.idx)
+    print "type: " + types + ": " + globals.idx
+    if typeof(types) == "string" then
+        types = [types]
+    end if
+    for each_type in types
+        if globals.idx >= tokens.len or tokens[globals.idx]["type"] != each_type then
+            globals.idx = globals.idx_stack.pop
+            return false
+        end if
+        globals.idx = globals.idx + 1
+    end for
+    globals.idx_stack.pop
+    return true
+end function
+epsilonFunc = function
+    return true
+end function
+optional = function(func)
+    return parallel([@func, @epsilonFunc])
+end function
+repeated = function(func)
+    result = true
+    while result
+        result = func()
+    end while
+    return true
+end function
+parallel = function(funcs)
+    globals.idx_stack.push(globals.idx)
+    for each_func in funcs
+        if each_func() == 0 then
+            globals.idx = globals.idx_stack[-1]
+        else
+            globals.idx_stack.pop
+            return true
+        end if
+    end for
+    globals.idx_stack.pop
+    return false
+end function
+
+requireTypeWord = function
+    return requireType("word")
+end function
+requireTypeNumber = function
+    return requireType("number")
+end function
+requireTypeString = function
+    return requireType("string")
+end function
+requireStringStar = function
+    return requireString("*")
+end function
+requireStringSemicolon = function
+    return requireString(";")
+end function
+
+selectStatement = function()
+    return requireString("SELECT") and selectElements() and fromClause() and requireStringSemicolon()
+end function
+selectElements = function()
+    tmp_func = function
+        return requireString(",") and selectElement()
+    end function
+    return selectElement() and repeated(@tmp_func)
+end function
+selectElement = function()
+    return parallel([@requireTypeWord, @requireStringStar])
+end function
+fromClause = function()
+    tmp_func = function
+        return requireString("WHERE") and expression()
+    end function
+    return requireString("FROM") and tableSources() and optional(@tmp_func)
+end function
+tableSources = function()
+    tmp_func = function
+        return requireString(",") and tableSource()
+    end function
+    return tableSource() and repeated(@tmp_func)
+end function
+tableSource = function()
+    return parallel([@requireTypeWord, @requireStringStar])
+end function
+expression = function()
+    // tmp_func1 = function
+    //     return notOperator() and expression()
+    // end function
+    // tmp_func2 = function
+    //     return expression() and logicalOperator() and expression()
+    // end function
+    tmp_func3 = function
+        return requireTypeWord() and comparisonOperator() and parallel([@requireTypeWord, @requireTypeNumber, @requireTypeString])
+    end function
+    // tmp_func4 = function
+    //     return expressionAtom()
+    // end function
+    return parallel([@tmp_func3])
+end function
+expressionAtom= function
+    return parallel([@requireTypeWord, @requireTypeNumber])
+end function
+notOperator = function()
+    tmp_func1 = function
+        return requireString("NOT")
+    end function
+    tmp_func2 = function
+        return requireString("!")
+    end function
+    return parallel([@tmp_func2, @tmp_func2])
+end function
+logicalOperator = function()
+    tmp_func1 = function
+        return requireString("AND")
+    end function
+    tmp_func2 = function
+        return requireString(["&", "&"])
+    end function
+    tmp_func3 = function
+        return requireString("XOR")
+    end function
+    tmp_func4 = function
+        return requireString("OR")
+    end function
+    tmp_func5 = function
+        return requireString("["|", "|"]")
+    end function
+    tmp_list = [@tmp_func1, @tmp_func2, @tmp_func3, @tmp_func4, @tmp_func5]
+    return parallel(tmp_list)
+end function
+comparisonOperator = function()
+    tmp_func1 = function
+        return requireString("=")
+    end function
+    tmp_func2 = function
+        return requireString(">")
+    end function
+    tmp_func3 = function
+        return requireString("<")
+    end function
+    tmp_func4 = function
+        return requireString(["<", "="])
+    end function
+    tmp_func5 = function
+        return requireString([">", "="])
+    end function  
+    tmp_func6 = function
+        return requireString(["<", ">"])
+    end function
+    tmp_func7 = function
+        return requireString(["<", "=", ">"])
+    end function
+    tmp_func8 = function
+        return requireString(["!", "="])
+    end function
+    tmp_list = [@tmp_func1, @tmp_func2, @tmp_func3, @tmp_func4, @tmp_func5, @tmp_func6, @tmp_func7, @tmp_func8]
+    return parallel(tmp_list)
+end function
+
+while true
+    globals.query = user_input("SQL expression: ")
+    globals.tokens = globals.lexer.tokenize(query)
+    globals.idx = 0
+    globals.idx_stack = []
+    print globals.tokens
+    if globals.selectStatement and globals.idx == globals.tokens.len then
+        print "SUCCESS!"
+    end if
+end while
