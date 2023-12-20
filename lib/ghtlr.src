@@ -1,0 +1,51 @@
+import_code("./lib/josn.src")
+
+LexicalAnalyzer = {}
+LexicalAnalyzer.tokenize = function(expression)
+   result = [] // [{"type": type, "value": value}, ...]
+   while expression
+      for each_rule in self.rules
+         type = each_rule["type"]
+         ignore = each_rule["ignore"]
+         value = null
+
+         for each_regex in each_rule["regex"]
+            regex_result = expression.matches(each_regex)
+            for each in regex_result.indexes
+               value = regex_result[each]
+               break
+            end for
+            if value then break
+         end for
+
+         if value then
+            expression = expression[value.len:]
+            if ignore then break
+            result.push({"type": type, "value": value})
+            break
+         end if
+      end for
+   end while
+   return result
+end function
+LexicalAnalyzer.addRule = function(type, regex, ignore=false)
+    if typeof(regex) != "list" then
+        regex = [regex]
+    end if
+    self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
+end function
+LexicalAnalyzer.init = function
+   result = new LexicalAnalyzer
+   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
+   return result
+end function
+
+SyntaxParser = {}
+SyntaxParser.init = function
+   result = new SyntaxParser
+   result["prods"] = [] // [{symbol: expression}, ...]
+   return result
+end function
+SyntaxParser.addProd = function(symbol, expression)
+    self["prods"].push({symbol: expression})
+end function

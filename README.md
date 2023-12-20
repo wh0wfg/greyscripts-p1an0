@@ -57,11 +57,11 @@ pystring.src: seems useless
 * [X] mail.src: mail management for automission use
 * [X] p1an0Xcore.src: Functions about autohack isolated from p1an0Xshell.src
 * [X] network.src: LAN tree structure management
-* [ ] ghtrl.src: (GreyHack Tool for Language Recognition) Inspired by antrl 	   :)
+* [ ] ghtlr.src: (GreyHack Tool for Language Recognition) Inspired by antrl 	   :)
   * [X] lexer, LL(*) parser, and SQL parser demo
   * [ ] refactoring code to support a cleaner way of defining syntax rules
   * [ ] support compile parser
-* [ ] database.src: Distributed storage and remote database services
+* [ ] ghsql.src: Distributed storage and remote database services
   * [ ] database engine for logical plan and physical plan of AST
   * [ ] implement distributed data io algorithms
   * [ ] ui, show redundancy level, free space, etc

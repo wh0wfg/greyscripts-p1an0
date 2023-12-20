@@ -1,0 +1,190 @@
+//mport_code("./lib/josn.src")
+Ghtlr = {}
+Ghtlr.init = function
+   result = new Ghtlr
+   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
+   result["rule_types"] = []
+   result["prods"] = [] // [{symbol: expression}, ...]
+   result["prod_symbols"] = []
+   result["tokens"] = []
+   result["token_idx"] = 0
+   result["idx_stack"] = []
+   return result
+end function
+Ghtlr.tokenize = function(expression)
+   result = [] // [{"type": type, "value": value}, ...]
+   while expression
+      for each_rule in self.rules
+         type = each_rule["type"]
+         ignore = each_rule["ignore"]
+         value = null
+
+         for each_regex in each_rule["regex"]
+            regex_result = expression.matches(each_regex)
+            for each in regex_result.indexes
+               value = regex_result[each]
+               break
+            end for
+            if value then break
+         end for
+
+         if value then
+            expression = expression[value.len:]
+            if ignore then break
+            result.push({"type": type, "value": value})
+            break
+         end if
+      end for
+   end while
+   return result
+end function
+
+Ghtlr.addRule = function(type, regex, ignore=false)
+    if typeof(regex) != "list" then
+        regex = [regex]
+    end if
+    self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
+    self["rule_types"].push(type)
+end function
+Ghtlr.addProd = function(symbol, expression)
+    self["prods"].push({symbol: expression})
+    self["prod_symbols"].push(symbol)
+end function
+
+Ghtlr.requireValue = function(value, result_type="requireValue")
+    items = []
+    self.idx_stack.push(self.idx)
+    print "value: " + value + ": " + self.idx
+    if typeof(value) != "list" then
+        value = [value]
+    end if
+    for each_value in value
+        if self.idx >= self.tokens.len or self.tokens[self.idx]["value"] != each_value then
+            self.idx = self.idx_stack.pop
+            return {"flag": false, "type": result_type}
+        end if
+        items.push({"token_value": self.tokens[self.idx]["value"], "token_type": self.tokens[self.idx]["type"]})
+        self.idx = self.idx + 1
+    end for
+    self.idx_stack.pop
+    return {"flag": true, "type": result_type, "items": items}
+end function
+Ghtlr.requireType = function(types, result_type="requireType")
+    items = []
+    self.idx_stack.push(self.idx)
+    print "type: " + types + ": " + self.idx
+    if typeof(types) == "string" then
+        types = [types]
+    end if
+    for each_type in types
+        if self.idx >= self.tokens.len or self.tokens[self.idx]["type"] != each_type then
+            self.idx = self.idx_stack.pop
+            return {"flag": false, "type": result_type}
+        end if
+        items.push({"token_value": self.tokens[self.idx]["value"], "token_type": self.tokens[self.idx]["type"]})
+        self.idx = self.idx + 1
+    end for
+    self.idx_stack.pop
+    return {"flag": true, "type": result_type, "items": items}
+end function
+Ghtlr.series = function(funcs, result_type="series")
+    items = []
+    self.idx_stack.push(self.idx)
+    for each_func in funcs
+        func_result = each_func()
+        if func_result.flag == false then
+            self.idx = self.idx_stack.pop
+            return {"flag": false, "type": result_type}
+        end if
+        items.push(func_result)
+    end for
+    self.idx_stack.pop
+    return {"flag": true, "type": result_type, "items": items}
+end function
+Ghtlr.epsilonFunc =  function(result_type="epsilonFunc")
+    return {"flag": true, "type": result_type}
+end function
+Ghtlr.parallel = function(funcs, result_type="parallel")
+    self.idx_stack.push(self.idx)
+    for each_func in funcs
+        func_result = each_func()
+        if func_result.flag == false then
+            self.idx = self.idx_stack[-1]
+        else
+            self.idx_stack.pop
+            func_result.type = result_type
+            return func_result
+        end if
+    end for
+    self.idx_stack.pop
+    return {"flag": false, "type": result_type}
+end function
+Ghtlr.optional = function(func, result_type="optional")
+    return parallel([@func, @epsilonFunc], result_type)
+end function
+Ghtlr.any = function(func, result_type="any")
+    items = []
+    flag = true
+    while flag
+        result = func()
+        flag = result.flag
+        items.push(result)
+    end while
+    return {"flag": true, "type": result_type, "items": items}
+end function
+Ghtlr.compileFunc = function(expression)
+    type = expression.indexes[0]
+    items = expression.values[0]
+
+    funcs = []
+    for each_item in items
+        if typeof(each_item) == "string" then
+            if each_item[0] == "'" and each_item[-1] == "'" then
+                value_func = function
+                    return self.requireValue(each_item[1:-1])
+                end function
+                funcs.push(@value_func) 
+            else if self["rule_types"].hasIndex(each_item) == true then
+                type_func = function
+                    return self.requireType(each_item)
+                end function
+                funcs.push(@type_func)
+            else if self["prod_symbols"].hasIndex(each_item) == true then
+                symbol_func = self.compileFunc()
+                funcs.push(@symbol_func)
+            end if
+        end if
+    end for
+end function
+Ghtlr.compile = function
+    for each_prod in self["prods"]
+        symbol = each_prod.indexes[0]
+        expression = each_prod.values[0]
+        exp_type = expression.indexes[0]
+        exp_items = expression.values[0]
+    end for
+end function
+
+sparser = Ghtlr.init
+
+sparser.addRule("SPACE", "^[ \t\r\n]+", true)
+sparser.addRule("STRING_LITERAL", ["^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))", "^((?=')(?:'[^'\\]*(?:\\[\s\S][^'\\]*)*'))", "^((?=`)(?:`[^`\\]*(?:\\[\s\S][^`\\]*)*`))"])
+sparser.addRule("DECIMAL_LITERAL", "^-?\d+(\.\d+)?")
+sparser.addRule("ID_LITERAL", "^[A-Z_$0-9\u0080-\uFFFF]*?[A-Z_$\u0080-\uFFFF]+?[A-Z_$0-9\u0080-\uFFFF]*")
+sparser.addRule("SPECIAL", ["^(\(|\))", "^(!=|<>|==|<=|>=|!<|!>|\|\||::|->>|->|~~\*|~~|!~~\*|!~~|~\*|!~\*|!~|.)"])
+
+
+sparser.addProd("constatn", {"parallel": ["STRING_LITERAL", "DECIMAL_LITERAL"]})
+sparser.addProd("fullColumnName", {"parallel": ["STRING_LITERAL", "ID_LITERAL"]})
+sparser.addProd("tableName", {"series": ["ID_LITERAL"]})
+sparser.addProd("selectStatement", {"series": ["'SELECT'", "selectElements", "fromClause"]})
+sparser.addProd("selectElements", {"series": [{"parallel": ["'*'", "selectElement"]}, {"any": [{"series": ["','", "selectElement"]}]}]})
+sparser.addProd("selectElement", {"series": ["fullColumnName"]})
+sparser.addProd("fromClause", {"series": ["'FROM'", "tableSources", {"optional": [{"series": ["'WHERE'", "expression"]}]}]})
+sparser.addProd("tableSources", {"series": [{"parallel": ["'*'", "tableSource"]}, {"any": [{"series": ["','", "tableSource"]}]}]})
+sparser.addProd("tableSource", {"series": ["tableName"]})
+sparser.addProd("expression", {"series": ["expressionAtom", "comparisonOperator", "expressionAtom"]})
+sparser.addProd("expressionAtom", {"parallel": ["fullColumnName", "constant"]})
+sparser.addProd("comparisonOperator", {"parallel": ["'='", "'>'", "'<'", {"series": ["'<'", "'='"]}, {"series": ["'>'", "'='"]}, {"series": ["'!'", "'='"]}, {"series": ["'<'", "'>'"]}, {"series": ["'<'", "'='", "'>'"]}]})
+sparser.addProd("logicalOperator", {"parallel": ["'AND'", "'XOR'", "'OR'", {"series": ["'&'", "'&'"]}, {"series": ["'|'", "'|'"]}]})
+sparser.addProd("notOperator", {"parallel": ["'NOT'", {"series": ["'!'", "'='"]}]})

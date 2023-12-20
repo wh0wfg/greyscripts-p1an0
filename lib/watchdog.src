@@ -1,0 +1,38 @@
+// ps = get_shell.host_computer.show_procs.split(char(10))
+// flag = []
+// for each in ps[1:]
+// 	flag.push(each.split(" ")[1])
+// end for
+
+// while true
+//     ps = get_shell.host_computer.show_procs.split(char(10))
+//     for each in ps[1:]
+//         ts = each.split(" ")[1]
+//         if flag.indexOf(ts) == null then
+//             print "DETECTED: PID: " + ts + " NAME: " + each.split(" ")[-1]
+//             flag.push(ts)
+//         end if
+//     end for
+// end while
+a = get_shell.host_computer.File("/home/guest/jumpfile.src")
+b = get_shell.host_computer.File("/home/guest/jumpfile")
+if a then a.delete
+if b then b.delete
+id = 0
+ps = get_shell.host_computer.show_procs.split(char(10))
+for each in ps[1:]
+    ts = each.split(" ")[-1]
+    globals.id = each.split(" ")[1]
+    if ts == "viper" then
+        print "viper pid: " + globals.id
+    end if
+end for
+hm = get_shell.host_computer
+while true
+    f = hm.File("/home/guest/jumpfile.src")
+    if f then
+        print hm.close_program(globals.id)
+        print "DETECTED!"
+        print f.get_content
+    end if
+end while
