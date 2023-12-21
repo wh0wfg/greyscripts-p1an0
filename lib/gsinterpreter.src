@@ -1,0 +1,122 @@
+LexicalAnalyzer = {}
+LexicalAnalyzer.tokenize = function(expression)
+   result = [] // [{"type": type, "value": value, "loc": [line, colume]}, ...]
+   line = 0
+   colume = 0
+   while expression
+      for each_rule in self.rules
+         type = each_rule["type"]
+         ignore = each_rule["ignore"]
+         value = null
+
+         for each_regex in each_rule["regex"]
+            regex_result = expression.matches(each_regex)
+            for each in regex_result.indexes
+               value = regex_result[each]
+               break
+            end for
+            if value then break
+         end for
+
+         if value then
+            colume = colume + value.len
+            if type == "ENTER" then
+               line = line + 1
+               colume = 0
+            end if
+            expression = expression[value.len:]
+            if ignore then break
+            result.push({"type": type, "value": value, "loc": [line, colume]})
+            break
+         end if
+      end for
+   end while
+   return result
+end function
+LexicalAnalyzer.addRule = function(type, regex, ignore=false)
+    if typeof(regex) != "list" then
+        regex = [regex]
+    end if
+    self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
+end function
+LexicalAnalyzer.init = function
+   result = new LexicalAnalyzer
+   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
+   return result
+end function
+
+lexer = LexicalAnalyzer.init
+lexer.addRule("SPACE", "^[ \t]+", true)
+lexer.addRule("ENTER", "^[\r\n]", true)
+lexer.addRule("COMMENT", "^\/\/.*(?=\n|\r|$)", true)
+
+lexer.addRule("EQUALS", "^==")
+lexer.addRule("NOT_EQ", "^!=")
+lexer.addRule("GT_EQ", "^>=")
+lexer.addRule("LT_EQ", "^<=")
+lexer.addRule("ASSIGN", "^=")
+
+lexer.addRule("LESS_THAN", "^<")
+lexer.addRule("GREATER_THAN", "^>")
+lexer.addRule("COLON", "^:")
+lexer.addRule("ADD", "^\+")
+lexer.addRule("MINUS", "^-")
+lexer.addRule("DIV", "^\/")
+lexer.addRule("MOD", "^%")
+lexer.addRule("STAR", "^\*")
+lexer.addRule("COMMA", "^,");
+lexer.addRule("SEMI_COLON", "^;")
+lexer.addRule("DOT", "^\.")
+lexer.addRule("AT", "^@")
+lexer.addRule("OPEN_PAREN", "^\(")
+lexer.addRule("CLOSE_PAREN", "^\)")
+lexer.addRule("OPEN_BRACE", "^\{")
+lexer.addRule("CLOSE_BRACE", "^\}")
+lexer.addRule("OPEN_BRACKET", "^\[")
+lexer.addRule("CLOSE_BRACKET", "^\]")
+
+// lexer.addRule("IF", "^if(?![0-9a-zA-Z_]")
+// lexer.addRule("ELSE", "^else(?![0-9a-zA-Z_]")
+// lexer.addRule("END_IF", "^end if(?![0-9a-zA-Z_]")
+
+// lexer.addRule("FOR", "^for(?![0-9a-zA-Z_]")
+// lexer.addRule("END_FOR", "^end for(?![0-9a-zA-Z_]")
+// lexer.addRule("WHILE", "^while(?![0-9a-zA-Z_]")
+// lexer.addRule("END_WHILE", "^end while(?![0-9a-zA-Z_]")
+// lexer.addRule("FUNCTION", "^function(?![0-9a-zA-Z_]")
+// lexer.addRule("END_FUNCTION", "^end function(?![0-9a-zA-Z_]")
+
+// lexer.addRule("THEN", "^then(?![0-9a-zA-Z_]")
+// lexer.addRule("AND", "^and(?![0-9a-zA-Z_]")
+// lexer.addRule("OR", "^or(?![0-9a-zA-Z_]")
+
+lexer.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
+lexer.addRule("STRING_LITERAL", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
+lexer.addRule("NUMBER_LITERAL", "^-?\d+(\.\d+)?")
+
+
+test = "
+// this is a test
+a = 1
+c = ""asfas""
+d = 1.1
+e = a
+f = [1, 2, 3]
+g = {""123"": 123, c: e}
+if a== 1 then
+   print c
+else if a != 2 then
+   print d
+else
+   print e
+end if
+a = function(x, y)
+end function
+while true
+end while
+for i in indexes(f)
+end for
+"
+
+tokens = lexer.tokenize(test)
+print tokens

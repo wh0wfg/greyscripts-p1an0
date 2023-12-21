@@ -281,7 +281,7 @@ COMMANDS.whoami.parser = Argparse.init
 COMMANDS.whoami.execute = function(args)
     UTILS.printToCLI(globals.CURRENT_USER)
 end function
-COMMANDSxpl = {}
+COMMANDS.lan = {}
 COMMANDS.lan.parser = null
 COMMANDS.lan.execute = function(args)
     if not args or args.len > 2 or args.len < 1 then
