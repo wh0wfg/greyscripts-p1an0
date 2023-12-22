@@ -1,0 +1,201 @@
+import_code("/home/p1an0/lib/json.src")
+LexicalAnalyzer = {}
+LexicalAnalyzer.tokenize = function(expression)
+   result = [] // [{"type": type, "value": value, "loc": [line, colume]}, ...]
+   line = 0
+   colume = 0
+   while expression
+      for each_rule in self.rules
+         type = each_rule["type"]
+         ignore = each_rule["ignore"]
+         value = null
+
+         for each_regex in each_rule["regex"]
+            regex_result = expression.matches(each_regex)
+            for each in regex_result.indexes
+               value = regex_result[each]
+               break
+            end for
+            if value then break
+         end for
+
+         if value then
+            colume = colume + value.len
+            if type == "ENTER" then
+               line = line + 1
+               colume = 0
+            end if
+            expression = expression[value.len:]
+            if ignore then break
+            result.push({"type": type, "value": value, "loc": [line, colume]})
+            break
+         end if
+      end for
+   end while
+   return result
+end function
+LexicalAnalyzer.addRule = function(type, regex, ignore=false)
+    if typeof(regex) != "list" then
+        regex = [regex]
+    end if
+    self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
+end function
+LexicalAnalyzer.init = function
+   result = new LexicalAnalyzer
+   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
+   return result
+end function
+
+lexer = LexicalAnalyzer.init
+lexer.addRule("SPACE", "^[ \t]+", true)
+lexer.addRule("ENTER", "^[\r\n]", true)
+lexer.addRule("COMMENT", "^\/\/.*(?=\n|\r|$)", true)
+lexer.addRule("EQUALS", "^==")
+lexer.addRule("NOT_EQ", "^!=")
+lexer.addRule("GT_EQ", "^>=")
+lexer.addRule("LT_EQ", "^<=")
+lexer.addRule("ASSIGN", "^=")
+lexer.addRule("LESS_THAN", "^<")
+lexer.addRule("GREATER_THAN", "^>")
+lexer.addRule("COLON", "^:")
+lexer.addRule("ADD", "^\+")
+lexer.addRule("MINUS", "^-")
+lexer.addRule("DIV", "^\/")
+lexer.addRule("MOD", "^%")
+lexer.addRule("STAR", "^\*")
+lexer.addRule("COMMA", "^,");
+lexer.addRule("SEMI_COLON", "^;")
+lexer.addRule("DOT", "^\.")
+lexer.addRule("AT", "^@")
+lexer.addRule("OPEN_PAREN", "^\(")
+lexer.addRule("CLOSE_PAREN", "^\)")
+lexer.addRule("OPEN_BRACE", "^\{")
+lexer.addRule("CLOSE_BRACE", "^\}")
+lexer.addRule("OPEN_BRACKET", "^\[")
+lexer.addRule("CLOSE_BRACKET", "^\]")
+lexer.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
+lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
+lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
+
+
+test = "
+a = 1.1
+"
+
+tokens = lexer.tokenize(test)
+print tokens
+
+GSItoken_idx = 0
+GSIidx_stack = []
+GSInode_stack = []
+GSIast_stack = []
+GIStokens = []
+GSIparse = function(gsi_tokens)
+    globals.GSItoken_idx = 0
+    globals.GSIidx_stack = []
+    globals.GSInode_stack = []
+    globals.GSIast_stack = []
+    globals.GIStokens = gsi_tokens
+    globals.GSInode_stack.push(root)
+
+    while globals.GSInode_stack.len > 0 and globals.GSItoken_idx <= globals.GIStokens.len
+        nodes = globals.GSInode_stack[-1]
+        if nodes == null or nodes.len <= 0 then
+            globals.GSInode_stack.pop
+            if globals.GSIast_stack.len >= 2 then
+                last_ast = globals.GSIast_stack.pop
+                current_ast = globals.GSIast_stack[-1]
+                if last_ast.type == current_ast.type then
+                    current_ast.items = current_ast.items + last_ast.items
+                else
+                    current_ast.items.push(last_ast)
+                end if
+                current_ast["range"] = {"start": current_ast.items[0]["range"]["start"], "end": current_ast.items[-1]["range"]["end"]}
+            end if
+            continue
+        end if
+
+        globals.GSIidx_stack.push(globals.GSItoken_idx)
+
+        pass_flag = false
+        while nodes.len > 0
+            each_node = nodes.pull
+            func_result = each_node.func()
+            // print func_result
+            if typeof(func_result) == "list" then
+                print each_node.type
+                globals.GSInode_stack.push(func_result)
+                globals.GSIast_stack.push({"type": each_node.type, "items": []})
+            else if func_result.flag == true then
+                print func_result.items
+                globals.GSInode_stack.push(each_node.next_node)
+                globals.GSIast_stack.push({"type": each_node.type, "items": [func_result], "range": func_result["range"]})
+                globals.GSIidx_stack.pop
+                pass_flag = true
+                break
+            end if
+        end while
+        
+        if pass_flag == false then
+            globals.GSItoken_idx = globals.GSIidx_stack.pop
+        end if
+    end while
+    if globals.GSItoken_idx == globals.GIStokens.len then
+        print "YES!"
+        print toJSON(globals.GSIast_stack[0])
+    end if
+end function
+
+requireType = function(types, result_type="requireType")
+    items = []
+    if typeof(types) == "string" then
+        types = [types]
+    end if
+    for each_type in types
+        if globals.GSItoken_idx >= globals.GIStokens.len or globals.GIStokens[globals.GSItoken_idx]["type"] != each_type then
+            return {"flag": false, "type": result_type}
+        end if
+        items.push({"token_value": globals.GIStokens[globals.GSItoken_idx]["value"], "token_type": globals.GIStokens[globals.GSItoken_idx]["type"], "loc": globals.GIStokens[globals.GSItoken_idx]["loc"]})
+        globals.GSItoken_idx = globals.GSItoken_idx + 1
+    end for
+    ranges = {"start": [items[0]["loc"][0], items[0]["loc"][1]-items[0]["token_value"].len], "end": items[-1]["loc"]}
+    return {"flag": true, "type": result_type, "items": items, "range": ranges}
+end function
+
+series = function(funcs, result_type="series")
+    nodes = []
+    nodes.push({"func": @funcs[-1], "next_node": null, "type": result_type})
+    for i in range(funcs.len-2, 0, -1)
+        nodes.push({"func": @funcs[i], "next_node": [nodes[-1]], "type": result_type})
+    end for
+    return [nodes[-1]]
+end function
+parallel = function(funcs, result_type="parallel")
+    nodes = []
+    for each_func in funcs
+        nodes.push({"func": @each_func, "next_node": null, "type": result_type})
+    end for
+    return nodes
+end function
+root = function()
+    return parallel([@variableDeclaration], "root")
+end function
+variableDeclaration = function()
+    return series([@requireIdentifier, @requireAssign, @objectExpression], "variableDeclaration") 
+end function
+requireIdentifier = function()
+    return requireType("IDENTIFIER", "requireIdentifire")
+end function
+requireAssign = function()
+    return requireType("ASSIGN", "requireAssign")
+end function
+requireString = function()
+    return requireType("STRING", "requireString")
+end function
+requireNumber = function()
+    return requireType("NUMBER", "requireNumber")
+end function
+objectExpression = function
+    return parallel([@requireIdentifier, @requireString, @requireNumber], "objectExpression")
+end function
+GSIparse(tokens)
