@@ -161,7 +161,21 @@ requireType = function(types, result_type="requireType")
     ranges = {"start": [items[0]["loc"][0], items[0]["loc"][1]-items[0]["token_value"].len], "end": items[-1]["loc"]}
     return {"flag": true, "type": result_type, "items": items, "range": ranges}
 end function
-
+requireValue = function(value, result_type="requireValue")
+    items = []
+    if typeof(value) == "string" then
+        value = [value]
+    end if
+    for each_value in value
+        if globals.GSItoken_idx >= globals.GIStokens.len or globals.GIStokens[globals.GSItoken_idx]["value"] != each_value then
+            return {"flag": false, "type": result_type}
+        end if
+        items.push({"token_value": globals.GIStokens[globals.GSItoken_idx]["value"], "token_type": globals.GIStokens[globals.GSItoken_idx]["type"], "loc": globals.GIStokens[globals.GSItoken_idx]["loc"]})
+        globals.GSItoken_idx = globals.GSItoken_idx + 1
+    end for
+    ranges = {"start": [items[0]["loc"][0], items[0]["loc"][1]-items[0]["token_value"].len], "end": items[-1]["loc"]}
+    return {"flag": true, "type": result_type, "items": items, "range": ranges}
+end function
 series = function(funcs, result_type="series")
     nodes = []
     nodes.push({"func": @funcs[-1], "next_node": null, "type": result_type})
@@ -177,6 +191,21 @@ parallel = function(funcs, result_type="parallel")
     end for
     return nodes
 end function
+any = function(func, result_type="any")
+    tmp_func1 = function()
+        return optional(@func)
+    end function
+    node = {"func": @tmp_func1, "next_node": null, "type": result_type}
+    node.next_node = node
+    return [node]
+end function
+epsilonFunc =  function(result_type="epsilonFunc")
+    return {"flag": true, "type": result_type, "items": null, "range": null}
+end function
+optional = function(func, result_type="optional")
+    return parallel([@func, @epsilonFunc], result_type)
+end function
+
 root = function()
     return parallel([@variableDeclaration], "root")
 end function
