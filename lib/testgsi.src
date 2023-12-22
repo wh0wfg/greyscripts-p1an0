@@ -194,122 +194,133 @@ requireValue = function(value, result_type="requireValue")
     ranges = {"start": [items[0]["loc"][0], items[0]["loc"][1]-items[0]["token_value"].len], "end": items[-1]["loc"]}
     return {"flag": true, "type": result_type, "items": items, "range": ranges}
 end function
-series = function(funcs, parent_node, result_type="series")
+series = function(funcs, upper_node, result_type="series")
     nodes = []
-    nodes.push({"func": @funcs[-1], "next_node": parent_node.next_node, "type": result_type})
+    nodes.push({"func": null, "next_node": upper_node.next_node, "type": result_type})
+    nodes[-1].func = function()
+        tmp_func = @funcs[-1]
+        return tmp_func(nodes[-1])
+    end function
     for i in range(funcs.len-2, 0, -1)
-        nodes.push({"func": @funcs[i], "next_node": [nodes[-1]], "type": result_type})
+        nodes.push({"func": null, "next_node": [nodes[-1]], "type": result_type})
+        nodes[-1].func = function()
+            tmp_func = @funcs[i]
+            return tmp_func(nodes[-1])
+        end function
     end for
     return [nodes[-1]]
 end function
-parallel = function(funcs, parent_node, result_type="parallel")
+parallel = function(funcs, upper_node, result_type="parallel")
     nodes = []
     for each_func in funcs
-        nodes.push({"func": @each_func, "next_node": parent_node.next_node, "type": result_type})
+        nodes.push({"func": null, "next_node": upper_node.next_node, "type": result_type})
+        nodes[-1].func = function()
+            return each_func(nodes[-1])
+        end function
     end for
     return nodes
 end function
-any = function(func, parent_node, result_type="any")
-    node = {"func": @func, "next_node": null, "type": result_type}
-    node.next_node = [node, parent_node.next_node]
+any = function(func, upper_node, result_type="any")
+    node = {"func": null, "next_node": null, "type": result_type}
+    node.next_node = [node, upper_node.next_node]
+    node.func = function()
+        return func(node)
+    end function
     return [node]
 end function
 epsilonFunc =  function(result_type="epsilonFunc")
     return {"flag": true, "type": result_type, "items": null, "range": null}
 end function
-optional = function(func, parent_node, result_type="optional")
-    return parallel([@func, @epsilonFunc], parent_node, result_type)
+optional = function(func, upper_node, result_type="optional")
+    return parallel([@func, @epsilonFunc], upper_node, result_type)
 end function
 // end basic function
 program = function()
-    tmp_func1 = function()
-        return 
-    end function
-    return parallel([@variableDeclaration], null, "program")
+    return parallel([@variableDeclaration], {"next_node": null}, "program")
 end function
-requireComma = function()
+requireComma = function(upper_node)
    return requireType("COMMA", "requireComma")
 end function
-requireColon = function()
+requireColon = function(upper_node)
    return requireType("COLON", "requireColon")
 end function
-requireIdentifier = function()
+requireIdentifier = function(upper_node)
    return requireType("IDENTIFIER", "requireIdentifire")
 end function
-requireAssign = function()
+requireAssign = function(upper_node)
    return requireType("ASSIGN", "requireAssign")
 end function
-requireString = function()
+requireString = function(upper_node)
    return requireType("STRING", "requireString")
 end function
-requireNumber = function()
+requireNumber = function(upper_node)
    return requireType("NUMBER", "requireNumber")
 end function
-requireOpenParen = function()
+requireOpenParen = function(upper_node)
    return requireType("OPEN_PAREN", "requireOpenParen")
 end function
-requireCloseParen = function()
+requireCloseParen = function(upper_node)
    return requireType("CLOSE_PAREN", "requireCloseParen")
 end function
 
-requireNull = function()
+requireNull = function(upper_node)
    return requireValue("null", "requireNull")
 end function
-requireEnd = function()
+requireEnd = function(upper_node)
    return requireValue("end", "requireEnd")
 end function
-requireThen = function()
+requireThen = function(upper_node)
    return requireValue("then", "requireThen")
 end function
-requireIf = function()
+requireIf = function(upper_node)
    return requireValue("if", "requireIf")
 end function
-requireEndIf = function()
+requireEndIf = function(upper_node)
    return requireValue(["end", "if"], "requireEndIf")
 end function
 // math operator start
-requireStar = function()
+requireStar = function(upper_node)
    return requireType("STAR", "requireStar")
 end function
-requireDiv = function()
+requireDiv = function(upper_node)
    return requireType("DIV", "requireDiv")
 end function
-requireMod = function()
+requireMod = function(upper_node)
    return requireType("MOD", "requireMod")
 end function
-requireAdd = function()
+requireAdd = function(upper_node)
    return requireType("ADD", "requireAdd")
 end function
-requireMinus = function()
+requireMinus = function(upper_node)
    return requireType("MINUS", "requireMinus")
 end function
 // math operator end
 // logical operator start
-requireEquals = function()
+requireEquals = function(upper_node)
    return requireType("EQUALS", "requireEquals")
 end function
-requireNoteq = function()
+requireNoteq = function(upper_node)
    return requireType("NOT_EQ", "requireNoteq")
 end function
-requireGteq = function()
+requireGteq = function(upper_node)
    return requireType("GT_EQ", "requireGteq")
 end function
-requireLteq = function()
+requireLteq = function(upper_node)
    return requireType("LT_EQ", "requireLteq")
 end function
-requireGt = function()
+requireGt = function(upper_node)
    requireType("GREATER_THAN", "requireGt")
 end function
-requireLt = function()
+requireLt = function(upper_node)
    requireType("LESS_THAN", "requireLt")
 end function
-requireNot = function()
+requireNot = function(upper_node)
    return requireValue("not", "requireNot")
 end function
-requireAnd = function()
+requireAnd = function(upper_node)
    return requireValue("and", "requireAnd")
 end function
-requireOr = function()
+requireOr = function(upper_node)
    return requireValue("or", "requireOr")
 end function
 // logical operator end
@@ -354,27 +365,27 @@ evalExpression = function()
    return parallel([@pri1EvalExpression, @pri2EvalExpression, @pri3EvalExpression, @pri4EvalExpression, @pri5EvalExpression, @pri6EvalExpression, @pri7EvalExpression, @pri8EvalExpression], "evalExpression")
 end function
 // eval expression end
-objectExpression = function
-   return parallel([@requireNull, @requireIdentifier, @requireString, @requireNumber, @listExpression], "objectExpression")
+objectExpression = function(upper_node)
+   return parallel([@requireNull, @requireIdentifier, @requireString, @requireNumber, @listExpression], upper_node,"objectExpression")
 end function
 // list expression start
-requireOpenBracket = function()
+requireOpenBracket = function(upper_node)
    return requireType("OPEN_BRACKET", "requireOpenBracket")
 end function
-requireCloseBracket = function()
+requireCloseBracket = function(upper_node)
    return requireType("CLOSE_BRACKET", "requireCloseBracket")
 end function
-listElements = function()
-   tmp_func1 = function
-      return series([@requireComma, @objectExpression], "listElements")
+listElements = function(upper_node)
+   tmp_func1 = function(tmp_upper_node)
+      return series([@requireComma, @objectExpression], tmp_upper_node, "listElements")
    end function
-   tmp_func2 = function
-      return any(@tmp_func1, "listElements")
+   tmp_func2 = function(tmp_upper_node)
+      return any(@tmp_func1, tmp_upper_node, "listElements")
    end function
-   return series([@objectExpression, @tmp_func2], "listElements")
+   return series([@objectExpression, @tmp_func2], upper_node, "listElements")
 end function
-listExpression = function()
-   return series([@requireOpenBracket, @listElements, @requireCloseBracket], "listExpression")
+listExpression = function(upper_node)
+   return series([@requireOpenBracket, @listElements, @requireCloseBracket], upper_node, "listExpression")
 end function
 // list expression end
 // map expression start
@@ -396,20 +407,20 @@ mapElements = function()
    end function
    return series([@pairExpression, @tmp_func2], "mapElements")
 end function
-mapExpression = function()
-   return series([@requireOpenBrace, @mapElements, @requireCloseBrace], "mapExpression")
+mapExpression = function(upper_node)
+   return series([@requireOpenBrace, @mapElements, @requireCloseBrace], upper_node, "mapExpression")
 end function
 // map expression end
 // if statement start
-ifStatement =  function()
-   return series([@requireIf, @objectExpression, @requireThen, @blockStatement], "ifStatement")
+ifStatement =  function(upper_node)
+   return series([@requireIf, @objectExpression, @requireThen, @blockStatement], upper_node, "ifStatement")
 end function
 // if statement end
-newExpression = function()
-   return parallel([@requireIdentifier, @requireAssign, @objectExpression], "newExpression")
+newExpression = function(upper_node)
+   return parallel([@requireIdentifier, @requireAssign, @objectExpression], upper_node, "newExpression")
    return 
 end function
-variableDeclaration = function(parent_node)
-   return series([@requireIdentifier, @requireAssign, @objectExpression], "variableDeclaration") 
+variableDeclaration = function(upper_node)
+   return series([@requireIdentifier, @requireAssign, @objectExpression], upper_node,"variableDeclaration") 
 end function
 GSIparse(tokens)
