@@ -79,7 +79,7 @@ lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 
 test = "
-a = [1, 2, 3]
+a = 123
 "
 
 tokens = lexer.tokenize(test)
@@ -89,54 +89,77 @@ GSItoken_idx = 0
 GSIidx_stack = []
 GSInode_stack = []
 GSIast_stack = []
-GIStokens = []
+GSItokens = []
+GSIastRelation = function(current_ast, last_ast)
+    last_ts = last_ast.type_stack
+    current_ts = current_ast.type_stack
+    if last_ts.len == current_ts.len then
+        is_brother = true
+        for i in last_ts.indexes
+            if last_ts[i] != current_ts[i] then
+                return "other"
+            end if
+        end for
+        return "brother"
+    else if last_ts.len == current_ts.len - 1 then
+        full_ts = last_ts + [last_ast.type]
+        for i in full_ts.indexes
+            if full_ts[i] != current_ts[i] then
+                return "other"
+            end if
+        end for
+        return "child"
+    else
+        return "other"
+    end if
+end function
 GSIparse = function(gsi_tokens)
     globals.GSItoken_idx = 0
     globals.GSIidx_stack = []
     globals.GSInode_stack = []
     globals.GSIast_stack = []
-    globals.GIStokens = gsi_tokens
-    globals.GSInode_stack.push(program)
+    globals.GSItokens = gsi_tokens
+    globals.GSInode_stack.push([greyscript])
 
-    while globals.GSInode_stack.len > 0 and globals.GSItoken_idx < globals.GIStokens.len
+    while globals.GSInode_stack.len > 0 and globals.GSItoken_idx < globals.GSItokens.len
         nodes = globals.GSInode_stack[-1]
         // print globals.GSItoken_idx
-        if nodes == null or nodes.len <= 0 then
+        if nodes.len <= 0 or nodes[0] == null then
             globals.GSInode_stack.pop
-            if globals.GSIast_stack.len >= 2 then
-                last_ast = globals.GSIast_stack.pop
-                current_ast = globals.GSIast_stack[-1]
-                if last_ast.type == current_ast.type then
-                    current_ast.items = current_ast.items + last_ast.items
-                else
-                    current_ast.items.push(last_ast)
-                end if
-                // print globals.GSInode_stack
-                current_ast["range"] = {"start": current_ast.items[0]["range"]["start"], "end": current_ast.items[-1]["range"]["end"]}
-            end if
+            globals.GSIast_stack.pop
             continue
         end if
 
-        globals.GSIidx_stack.push(globals.GSItoken_idx)
+        if globals.GSIast_stack.len >= 3 then
+            current_ast = globals.GSIast_stack.pop
+            last_ast = globals.GSIast_stack.pop
+            ast_relation = GSIastRelation(current_ast, current_ast)
+            if ast_relation != "child" then
+                globals.GSIast_stack[-1].items.push(last_ast)
+                globals.GSIast_stack.push(current_ast)
+            else
+                globals.GSIast_stack.push(last_ast)
+                globals.GSIast_stack.push(current_ast)
+            end if
+        end if
 
+        globals.GSIidx_stack.push(globals.GSItoken_idx)
+        print globals.GSItoken_idx
         pass_flag = false
         while nodes.len > 0
             each_node = nodes.pull
-            func_result = each_node.func()
+            func_result = each_node.expand_func()
             next_node = each_node.next_node
-            print each_node
+            type_stack = each_node.type_stack
             print func_result
-            print "END"
             if typeof(func_result) == "list" then
-                for each_nn in func_result
-                    each_nn.next_node = next_node
-                end for
                 globals.GSInode_stack.push(func_result)
-                globals.GSIast_stack.push({"type": each_node.type, "items": []})
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": []})
+                break
             else if func_result.flag == true then
                 print func_result.items
-                globals.GSInode_stack.push(next_node)
-                globals.GSIast_stack.push({"type": each_node.type, "items": [func_result], "range": func_result["range"]})
+                globals.GSInode_stack.push([next_node])
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": func_result["items"], "range": func_result["range"]})
                 globals.GSIidx_stack.pop
                 pass_flag = true
                 break
@@ -147,19 +170,9 @@ GSIparse = function(gsi_tokens)
             globals.GSItoken_idx = globals.GSIidx_stack.pop
         end if
     end while
-    if globals.GSItoken_idx == globals.GIStokens.len then
+    if globals.GSItoken_idx == globals.GSItokens.len then
         print "YES!"
-        while globals.GSIast_stack.len >= 2
-            last_ast = globals.GSIast_stack.pop
-            current_ast = globals.GSIast_stack[-1]
-            if last_ast.type == current_ast.type then
-                current_ast.items = current_ast.items + last_ast.items
-            else
-                current_ast.items.push(last_ast)
-            end if
-            current_ast["range"] = {"start": current_ast.items[0]["range"]["start"], "end": current_ast.items[-1]["range"]["end"]}
-        end while
-        print toJSON(globals.GSIast_stack[0])
+        print toJSON(globals.GSIast_stack)
         // print toJSON(globals.GSIast_stack[0])
     end if
 end function
@@ -170,13 +183,15 @@ requireType = function(types, result_type="requireType")
         types = [types]
     end if
     for each_type in types
-        if globals.GSItoken_idx >= globals.GIStokens.len or globals.GIStokens[globals.GSItoken_idx]["type"] != each_type then
+        if globals.GSItoken_idx >= globals.GSItokens.len or globals.GSItokens[globals.GSItoken_idx]["type"] != each_type then
             return {"flag": false, "type": result_type}
         end if
-        items.push({"token_value": globals.GIStokens[globals.GSItoken_idx]["value"], "token_type": globals.GIStokens[globals.GSItoken_idx]["type"], "loc": globals.GIStokens[globals.GSItoken_idx]["loc"]})
+        current_token = globals.GSItokens[globals.GSItoken_idx]
+        each_range = {"start": [current_token["loc"][0], current_token["loc"][1]-current_token["value"].len], "end": current_token["loc"]}
+        items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
         globals.GSItoken_idx = globals.GSItoken_idx + 1
     end for
-    ranges = {"start": [items[0]["loc"][0], items[0]["loc"][1]-items[0]["token_value"].len], "end": items[-1]["loc"]}
+    ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
     return {"flag": true, "type": result_type, "items": items, "range": ranges}
 end function
 requireValue = function(value, result_type="requireValue")
@@ -185,242 +200,96 @@ requireValue = function(value, result_type="requireValue")
         value = [value]
     end if
     for each_value in value
-        if globals.GSItoken_idx >= globals.GIStokens.len or globals.GIStokens[globals.GSItoken_idx]["value"] != each_value then
+        if globals.GSItoken_idx >= globals.GSItokens.len or globals.GSItokens[globals.GSItoken_idx]["value"] != each_value then
             return {"flag": false, "type": result_type}
         end if
-        items.push({"token_value": globals.GIStokens[globals.GSItoken_idx]["value"], "token_type": globals.GIStokens[globals.GSItoken_idx]["type"], "loc": globals.GIStokens[globals.GSItoken_idx]["loc"]})
+        current_token = globals.GSItokens[globals.GSItoken_idx]
+        each_range = {"start": [current_token["loc"][0], current_token["loc"][1]-current_token["value"].len], "end": current_token["loc"]}
+        items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
         globals.GSItoken_idx = globals.GSItoken_idx + 1
     end for
-    ranges = {"start": [items[0]["loc"][0], items[0]["loc"][1]-items[0]["token_value"].len], "end": items[-1]["loc"]}
+    ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
     return {"flag": true, "type": result_type, "items": items, "range": ranges}
 end function
-series = function(funcs, upper_node, result_type="series")
-    nodes = []
-    nodes.push({"func": null, "next_node": upper_node.next_node, "type": result_type})
-    nodes[-1].func = function()
-        tmp_func = @funcs[-1]
-        return tmp_func(nodes[-1])
-    end function
-    for i in range(funcs.len-2, 0, -1)
-        nodes.push({"func": null, "next_node": [nodes[-1]], "type": result_type})
-        nodes[-1].func = function()
-            tmp_func = @funcs[i]
-            return tmp_func(nodes[-1])
-        end function
+// expand_func(): list[GSINode] | {"flag": flag, "type": type, "items": items, "range": range}
+GSINode = {"expand_func": null, "next_node": null, "type_stack": [],"type": null}
+GSINode.series = function(nodes)
+    result_nodes = []
+    last_node = new nodes[-1]
+    last_node.next_node = self.next_node
+    last_node.type_stack = self.type_stack + [self.type]
+    result_nodes.push(last_node)
+
+    for i in range(nodes.len-2, 0, -1)
+        each_node = new nodes[i]
+        each_node.next_node = result_nodes[-1]
+        each_node.type_stack = self.type_stack + [self.type]
+        result_nodes.push(each_node)
     end for
-    return [nodes[-1]]
+
+    return [result_nodes[-1]]
 end function
-parallel = function(funcs, upper_node, result_type="parallel")
-    nodes = []
-    for each_func in funcs
-        nodes.push({"func": null, "next_node": upper_node.next_node, "type": result_type})
-        nodes[-1].func = function()
-            return each_func(nodes[-1])
-        end function
+GSINode.parallel = function(nodes)
+    result_nodes = []
+    for i in nodes.indexes
+        each_node = new nodes[i]
+        each_node.next_node = self.next_node
+        each_node.type_stack = self.type_stack + [self.type]
+        result_nodes.push(each_node)
     end for
-    return nodes
+    return result_nodes
 end function
-any = function(func, upper_node, result_type="any")
-    node = {"func": null, "next_node": null, "type": result_type}
-    node.next_node = [node, upper_node.next_node]
-    node.func = function()
-        return func(node)
-    end function
-    return [node]
+GSINode.optional = function(node)
+    return self.parallel([epsilonNode, node])
 end function
-epsilonFunc =  function(result_type="epsilonFunc")
-    return {"flag": true, "type": result_type, "items": null, "range": null}
-end function
-optional = function(func, upper_node, result_type="optional")
-    return parallel([@func, @epsilonFunc], upper_node, result_type)
-end function
-// end basic function
-program = function()
-    return parallel([@variableDeclaration], {"next_node": null}, "program")
-end function
-requireComma = function(upper_node)
-   return requireType("COMMA", "requireComma")
-end function
-requireColon = function(upper_node)
-   return requireType("COLON", "requireColon")
-end function
-requireIdentifier = function(upper_node)
-   return requireType("IDENTIFIER", "requireIdentifire")
-end function
-requireAssign = function(upper_node)
-   return requireType("ASSIGN", "requireAssign")
-end function
-requireString = function(upper_node)
-   return requireType("STRING", "requireString")
-end function
-requireNumber = function(upper_node)
-   return requireType("NUMBER", "requireNumber")
-end function
-requireOpenParen = function(upper_node)
-   return requireType("OPEN_PAREN", "requireOpenParen")
-end function
-requireCloseParen = function(upper_node)
-   return requireType("CLOSE_PAREN", "requireCloseParen")
+GSINode.any = function(node)
+    result_node = new node
+    result_node.next_node = self
+    result_node.type_stack = self.type_stack + [self.type]
+    return [result_node, self]
 end function
 
-requireNull = function(upper_node)
-   return requireValue("null", "requireNull")
+greyscript = new GSINode
+greyscript.type = "greyscript"
+greyscript.expand_func = function()
+    return self.parallel([variableDeclaration])
 end function
-requireEnd = function(upper_node)
-   return requireValue("end", "requireEnd")
+variableDeclaration = new GSINode
+variableDeclaration.type = "variableDeclaration"
+variableDeclaration.expand_func = function()
+    return self.series([requireIdentifier, requireAssign, objectExpression])
 end function
-requireThen = function(upper_node)
-   return requireValue("then", "requireThen")
+objectExpression = new GSINode
+objectExpression.type = "objectExpression"
+objectExpression.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber])
 end function
-requireIf = function(upper_node)
-   return requireValue("if", "requireIf")
+
+// reserved string start
+epsilonNode = new GSINode
+epsilonNode.type = "epsilonNode"
+epsilonNode.expand_func = function()
+    return {"flag": true, "type": result_type}
 end function
-requireEndIf = function(upper_node)
-   return requireValue(["end", "if"], "requireEndIf")
+requireIdentifier = new GSINode
+requireIdentifier.type = "requireIdentifier"
+requireIdentifier.expand_func = function
+   return requireType("IDENTIFIER", "requireIdentifier")
 end function
-// math operator start
-requireStar = function(upper_node)
-   return requireType("STAR", "requireStar")
+requireAssign = new GSINode
+requireAssign.type = "requireAssign"
+requireAssign.expand_func = function()
+   return requireType("ASSIGN", "requireAssign")
 end function
-requireDiv = function(upper_node)
-   return requireType("DIV", "requireDiv")
+requireString = new GSINode
+requireString.type = "requireString"
+requireString.expand_func = function()
+   return requireType("STRING", "requireString")
 end function
-requireMod = function(upper_node)
-   return requireType("MOD", "requireMod")
+requireNumber = new GSINode
+requireNumber.type = "requireNumber"
+requireNumber.expand_func = function()
+   return requireType("NUMBER", "requireNumber")
 end function
-requireAdd = function(upper_node)
-   return requireType("ADD", "requireAdd")
-end function
-requireMinus = function(upper_node)
-   return requireType("MINUS", "requireMinus")
-end function
-// math operator end
-// logical operator start
-requireEquals = function(upper_node)
-   return requireType("EQUALS", "requireEquals")
-end function
-requireNoteq = function(upper_node)
-   return requireType("NOT_EQ", "requireNoteq")
-end function
-requireGteq = function(upper_node)
-   return requireType("GT_EQ", "requireGteq")
-end function
-requireLteq = function(upper_node)
-   return requireType("LT_EQ", "requireLteq")
-end function
-requireGt = function(upper_node)
-   requireType("GREATER_THAN", "requireGt")
-end function
-requireLt = function(upper_node)
-   requireType("LESS_THAN", "requireLt")
-end function
-requireNot = function(upper_node)
-   return requireValue("not", "requireNot")
-end function
-requireAnd = function(upper_node)
-   return requireValue("and", "requireAnd")
-end function
-requireOr = function(upper_node)
-   return requireValue("or", "requireOr")
-end function
-// logical operator end
-// eval expression start
-pri1EvalExpression = function()
-   return series([@requireOpenParen, @objectExpression, @requireCloseParen])
-end function
-pri2EvalExpression = function()
-   return series([@requireNot, @objectExpression])
-end function
-pri3Operator = function()
-   return parallel([@requireStar, @requireDiv, @requireMod])
-end function
-pri3EvalExpression = function()
-   return series([@objectExpression, @pri3Operator, @objectExpression])
-end function
-pri4Operator = function()
-   return parallel([@requireAdd, @requireMinus])
-end function
-pri4EvalExpression = function()
-   return series([@objectExpression, @pri4Operator, @objectExpression])
-end function
-pri5Operator = function()
-   return parallel([@requireGteq, @requireLteq, @requireGt, @requireLt])
-end function
-pri5EvalExpression = function()
-   return series([@objectExpression, @pri5Operator, @objectExpression])
-end function
-pri6Operator = function()
-   return parallel([@requireEquals, @requireNoteq])
-end function
-pri6EvalExpression = function()
-   return series([@objectExpression, @pri6Operator, @objectExpression])
-end function
-pri7EvalExpression = function()
-   return series([@objectExpression, @requireAnd, @objectExpression])
-end function
-pri8EvalExpression = function()
-   return series([@objectExpression, @requireOr, @objectExpression])
-end function
-evalExpression = function()
-   return parallel([@pri1EvalExpression, @pri2EvalExpression, @pri3EvalExpression, @pri4EvalExpression, @pri5EvalExpression, @pri6EvalExpression, @pri7EvalExpression, @pri8EvalExpression], "evalExpression")
-end function
-// eval expression end
-objectExpression = function(upper_node)
-   return parallel([@requireNull, @requireIdentifier, @requireString, @requireNumber, @listExpression], upper_node,"objectExpression")
-end function
-// list expression start
-requireOpenBracket = function(upper_node)
-   return requireType("OPEN_BRACKET", "requireOpenBracket")
-end function
-requireCloseBracket = function(upper_node)
-   return requireType("CLOSE_BRACKET", "requireCloseBracket")
-end function
-listElements = function(upper_node)
-   tmp_func1 = function(tmp_upper_node)
-      return series([@requireComma, @objectExpression], tmp_upper_node, "listElements")
-   end function
-   tmp_func2 = function(tmp_upper_node)
-      return any(@tmp_func1, tmp_upper_node, "listElements")
-   end function
-   return series([@objectExpression, @tmp_func2], upper_node, "listElements")
-end function
-listExpression = function(upper_node)
-   return series([@requireOpenBracket, @listElements, @requireCloseBracket], upper_node, "listExpression")
-end function
-// list expression end
-// map expression start
-requireOpenBrace = function()
-   return requireType("OPEN_BRACE", "requireOpenBrace")
-end function
-requireCloseBrace = function()
-   return requireType("CLOSE_BRACE", "requireCloseBrace")
-end function
-pairExpression = function()
-   return series([@objectExpression, @requireColon, @objectExpression], "pairExpression")
-end function
-mapElements = function()
-   tmp_func1 = function
-      return series([@requireComma, @pairExpression])
-   end function
-   tmp_func2 = function
-      return any(@tmp_func1)
-   end function
-   return series([@pairExpression, @tmp_func2], "mapElements")
-end function
-mapExpression = function(upper_node)
-   return series([@requireOpenBrace, @mapElements, @requireCloseBrace], upper_node, "mapExpression")
-end function
-// map expression end
-// if statement start
-ifStatement =  function(upper_node)
-   return series([@requireIf, @objectExpression, @requireThen, @blockStatement], upper_node, "ifStatement")
-end function
-// if statement end
-newExpression = function(upper_node)
-   return parallel([@requireIdentifier, @requireAssign, @objectExpression], upper_node, "newExpression")
-   return 
-end function
-variableDeclaration = function(upper_node)
-   return series([@requireIdentifier, @requireAssign, @objectExpression], upper_node,"variableDeclaration") 
-end function
+// reserved string end
 GSIparse(tokens)
