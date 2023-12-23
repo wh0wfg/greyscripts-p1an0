@@ -135,6 +135,8 @@ GSIparse = function(gsi_tokens)
             ast_relation = GSIastRelation(current_ast, last_ast)
             if ast_relation != "child" then
                 globals.GSIast_stack[-1].items.push(last_ast)
+                each_range = {"start": globals.GSIast_stack[-1].items[0]["range"]["start"], "end": globals.GSIast_stack[-1].items[-1]["range"]["end"]}
+                globals.GSIast_stack[-1]["range"] = each_range
                 globals.GSIast_stack.push(current_ast)
             else
                 globals.GSIast_stack.push(last_ast)
@@ -172,6 +174,8 @@ GSIparse = function(gsi_tokens)
         while globals.GSIast_stack.len >= 2
             current_ast = globals.GSIast_stack.pop
             globals.GSIast_stack[-1].items.push(current_ast)
+            each_range = {"start": globals.GSIast_stack[-1].items[0]["range"]["start"], "end": globals.GSIast_stack[-1].items[-1]["range"]["end"]}
+            globals.GSIast_stack[-1]["range"] = each_range
         end while
         print toJSON(globals.GSIast_stack)
         // print toJSON(globals.GSIast_stack[0])
