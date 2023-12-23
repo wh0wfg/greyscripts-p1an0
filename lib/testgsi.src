@@ -80,6 +80,7 @@ lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
 a = 123
+c = a
 "
 
 tokens = lexer.tokenize(test)
@@ -177,7 +178,7 @@ GSIparse = function(gsi_tokens)
             each_range = {"start": globals.GSIast_stack[-1].items[0]["range"]["start"], "end": globals.GSIast_stack[-1].items[-1]["range"]["end"]}
             globals.GSIast_stack[-1]["range"] = each_range
         end while
-        print toJSON(globals.GSIast_stack)
+        print toJSON(globals.GSIast_stack[0])
         // print toJSON(globals.GSIast_stack[0])
     end if
 end function
@@ -249,7 +250,7 @@ GSINode.optional = function(node)
 end function
 GSINode.any = function(node)
     result_node = new node
-    result_node.next_node = self
+    result_node.next_node = result_node
     result_node.type_stack = self.type_stack + [self.type]
     return [result_node, self]
 end function
@@ -257,6 +258,11 @@ end function
 greyscript = new GSINode
 greyscript.type = "greyscript"
 greyscript.expand_func = function()
+    return self.any(codeBlock)
+end function
+codeBlock = new GSINode
+codeBlock.type = "codeBlock"
+codeBlock.expand_func = function()
     return self.parallel([variableDeclaration])
 end function
 variableDeclaration = new GSINode
