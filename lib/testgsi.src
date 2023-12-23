@@ -129,35 +129,32 @@ GSIparse = function(gsi_tokens)
             globals.GSIast_stack.pop
             continue
         end if
-
-        if globals.GSIast_stack.len >= 3 then
+        while globals.GSIast_stack.len >= 3
             current_ast = globals.GSIast_stack.pop
             last_ast = globals.GSIast_stack.pop
-            ast_relation = GSIastRelation(current_ast, current_ast)
+            ast_relation = GSIastRelation(current_ast, last_ast)
             if ast_relation != "child" then
                 globals.GSIast_stack[-1].items.push(last_ast)
                 globals.GSIast_stack.push(current_ast)
             else
                 globals.GSIast_stack.push(last_ast)
                 globals.GSIast_stack.push(current_ast)
+                break
             end if
-        end if
+        end while
 
         globals.GSIidx_stack.push(globals.GSItoken_idx)
-        print globals.GSItoken_idx
         pass_flag = false
         while nodes.len > 0
             each_node = nodes.pull
             func_result = each_node.expand_func()
             next_node = each_node.next_node
             type_stack = each_node.type_stack
-            print func_result
             if typeof(func_result) == "list" then
                 globals.GSInode_stack.push(func_result)
                 globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": []})
                 break
             else if func_result.flag == true then
-                print func_result.items
                 globals.GSInode_stack.push([next_node])
                 globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": func_result["items"], "range": func_result["range"]})
                 globals.GSIidx_stack.pop
@@ -172,6 +169,10 @@ GSIparse = function(gsi_tokens)
     end while
     if globals.GSItoken_idx == globals.GSItokens.len then
         print "YES!"
+        while globals.GSIast_stack.len >= 2
+            current_ast = globals.GSIast_stack.pop
+            globals.GSIast_stack[-1].items.push(current_ast)
+        end while
         print toJSON(globals.GSIast_stack)
         // print toJSON(globals.GSIast_stack[0])
     end if
