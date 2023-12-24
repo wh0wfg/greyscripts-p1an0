@@ -79,10 +79,13 @@ lexer.addRule("FOR", "^for(?![A-Za-z0-9_])")
 lexer.addRule("FUNCTION", "^function(?![A-Za-z0-9_])")
 lexer.addRule("NEW", "^new(?![A-Za-z0-9_])")
 lexer.addRule("RETURN", "^return(?![A-Za-z0-9_])")
+lexer.addRule("END", "^end(?![A-Za-z0-9_])")
 lexer.addRule("AND", "^and(?![A-Za-z0-9_])")
 lexer.addRule("OR", "^or(?![A-Za-z0-9_])")
 lexer.addRule("NOT", "^not(?![A-Za-z0-9_])")
-lexer.addRule("END", "^end(?![A-Za-z0-9_])")
+lexer.addRule("NULL", "^null(?![A-Za-z0-9_])")
+lexer.addRule("TRUE", "^true(?![A-Za-z0-9_])")
+lexer.addRule("FALSE", "^false(?![A-Za-z0-9_])")
 lexer.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
 lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
@@ -219,12 +222,12 @@ GSIparse = function(gsi_tokens)
             if current_ast.type == "epsilonNode" then
                 globals.GSIast_stack.remove(index)
             else if prev_relation == "child" and next_relation != "child" then
-                ast.remove("ignore")
                 current_ast.remove("type_stack")
                 if current_ast.items.len != 0 then
                     if current_ast.ignore then
-                        prev_ast.items.push(current_ast.items)
+                        prev_ast.items = prev_ast.items + current_ast.items
                     else
+                        current_ast.remove("ignore")
                         prev_ast.items.push(current_ast)
                     end if
                 end if
@@ -345,7 +348,7 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, evalExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, evalExpression])
 end function
 // list expression start
 listClause = new GSINode
@@ -436,6 +439,21 @@ requireComma.ignore = true
 requireComma.expand_func = function()
    return requireType("COMMA", self.type, self.ignore)
 end function
+requireNull = new GSINode
+requireNull.type = "requireNull"
+requireNull.expand_func = function()
+   return requireType("NULL", self.type, self.ignore)
+end function
+requireTrue = new GSINode
+requireTrue.type = "requireTrue"
+requireTrue.expand_func = function()
+   return requireType("TRUE", self.type, self.ignore)
+end function
+requireFalse = new GSINode
+requireFalse.type = "requireFalse"
+requireFalse.expand_func = function()
+   return requireType("FALSE", self.type, self.ignore)
+end function
 // reserved string end
 // math operator start
 requireStar = new GSINode
@@ -498,7 +516,7 @@ end function
 requireNot = new GSINode
 requireNot.type = "requireNot"
 requireNot.expand_func = function()
-   return requireType("not", self.type, self.ignore)
+   return requireType("NOT", self.type, self.ignore)
 end function
 requireAnd = new GSINode
 requireAnd.type = "requireAnd"
@@ -525,6 +543,7 @@ pri1EvalExpression.expand_func = function() // ()
 end function
 pri2Operator = new GSINode
 pri2Operator.type = "pri2Operator"
+pri2Operator.ignore = true
 pri2Operator.expand_func = function()
    return self.parallel([requireNot, requireAdd, requireMinus])
 end function
@@ -535,6 +554,7 @@ pri2EvalExpression.expand_func = function() // not + -
 end function
 pri3Operator = new GSINode
 pri3Operator.type = "pri3Operator"
+pri3Operator.ignore = true
 pri3Operator.expand_func = function()
    return self.parallel([requireStar, requireDiv, requireMod])
 end function
@@ -545,6 +565,7 @@ mdmEvalExpression.expand_func_bak = function()
 end function
 anyMdmEval = new GSINode
 anyMdmEval.type = "anyMdmEval"
+anyMdmEval.ignore = true
 anyMdmEval.expand_func = function()
     return self.any(mdmEvalExpression)
 end function
@@ -556,6 +577,7 @@ pri3EvalExpression.expand_func = function() // * /  %
 end function
 pri4Operator = new GSINode
 pri4Operator.type = "pri4Operator"
+pri4Operator.ignore = true
 pri4Operator.expand_func = function()
    return self.parallel([requireAdd, requireMinus])
 end function
@@ -566,6 +588,7 @@ amEvalExpression.expand_func_bak = function() // + -
 end function
 anyAmEval = new GSINode
 anyAmEval.type = "anyAmEval"
+anyAmEval.ignore = true
 anyAmEval.expand_func = function() // + -
    return self.any(amEvalExpression)
 end function
@@ -577,6 +600,7 @@ pri4EvalExpression.expand_func = function() // + -
 end function
 pri5Operator = new GSINode
 pri5Operator.type = "pri5Operator"
+pri5Operator.ignore = true
 pri5Operator.expand_func = function()
    return self.parallel([requireGteq, requireLteq, requireGt, requireLt])
 end function
@@ -587,6 +611,7 @@ compEvalExpression.expand_func_bak = function() // >= <= > <
 end function
 anyCompEval = new GSINode
 anyCompEval.type = "anyCompEval"
+anyCompEval.ignore = true
 anyCompEval.expand_func = function() // >= <= > <
    return self.any(compEvalExpression)
 end function
@@ -598,6 +623,7 @@ pri5EvalExpression.expand_func = function() // >= <= > <
 end function
 pri6Operator = new GSINode
 pri6Operator.type = "pri6Operator"
+pri6Operator.ignore = true
 pri6Operator.expand_func = function()
    return self.parallel([requireEquals, requireNoteq])
 end function
@@ -608,6 +634,7 @@ weqEvalExpression.expand_func_bak = function() // != ==
 end function
 anyWeqEval = new GSINode
 anyWeqEval.type = "anyWeqEval"
+anyWeqEval.ignore = true
 anyWeqEval.expand_func = function() // != ==
    return self.any(weqEvalExpression)
 end function
@@ -624,6 +651,7 @@ andEvalExpression.expand_func_bak = function() // and
 end function
 anyAndEval = new GSINode
 anyAndEval.type = "anyAndEval"
+anyAndEval.ignore = true
 anyAndEval.expand_func = function() // and
    return self.any(andEvalExpression)
 end function
@@ -640,6 +668,7 @@ orEvalExpression.expand_func_bak = function() // or
 end function
 anyOrEval = new GSINode
 anyOrEval.type = "anyOrEval"
+anyOrEval.ignore = true
 anyOrEval.expand_func = function() // or
    return self.any(orEvalExpression)
 end function
