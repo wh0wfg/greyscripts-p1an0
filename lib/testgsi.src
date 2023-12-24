@@ -99,6 +99,9 @@ for i in a
         c = i
     end for
 end for
+while i >= 2
+    i = i+1
+end while
 "
 
 tokens = lexer.tokenize(test)
@@ -344,7 +347,7 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement, forStatement])
+    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
@@ -868,4 +871,16 @@ forStatement.expand_func = function()
     return self.series([requireFor, requireIdentifier, requireIn, objectExpression, forCodeBlock, requireEnd, requireFor])
 end function
 // for statement end
+// while statement start
+whileCodeBlock = new GSINode
+whileCodeBlock.type = "whileCodeBlock"
+whileCodeBlock.expand_func = function()
+    return self.any(codeBlock)
+end function
+whileStatement = new GSINode
+whileStatement.type = "whileStatement"
+whileStatement.expand_func = function()
+    return self.series([requireWhile, evalExpression, whileCodeBlock, requireEnd, requireWhile])
+end function
+    // for statement end
 GSIparse(tokens)
