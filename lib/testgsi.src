@@ -94,14 +94,17 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-for i in a
-    for j in b
-        c = i
-    end for
-end for
-while i >= 2
-    i = i+1
-end while
+a = function(b=1,e=2,f,g,h=3)
+    c = 1
+end function
+
+a = function
+    c = 1
+end function
+
+a = function()
+    c = 1
+end function
 "
 
 tokens = lexer.tokenize(test)
@@ -358,7 +361,7 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, funcExpression])
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
@@ -389,7 +392,7 @@ optListElements = new GSINode
 optListElements.type = "optListElements"
 optListElements.ignore = true
 optListElements.expand_func = function()
-   return self.parallel([epsilonNodeNoIgnore, listElements])
+   return self.parallel([listElements, epsilonNodeNoIgnore])
 end function
 listExpression = new GSINode
 listExpression.type = "listExpression"
@@ -425,7 +428,7 @@ optMapElements = new GSINode
 optMapElements.type = "optMapElements"
 optMapElements.ignore = true
 optMapElements.expand_func = function()
-   return self.parallel([epsilonNodeNoIgnore, mapElements])
+   return self.parallel([mapElements, epsilonNodeNoIgnore])
 end function
 mapExpression = new GSINode
 mapExpression.type = "mapExpression"
@@ -882,5 +885,74 @@ whileStatement.type = "whileStatement"
 whileStatement.expand_func = function()
     return self.series([requireWhile, evalExpression, whileCodeBlock, requireEnd, requireWhile])
 end function
-    // for statement end
+// function expression start
+paramAtom = new GSINode
+paramAtom.type = "paramAtom"
+paramAtom.ignore = true
+paramAtom.expand_func = function()
+    return self.parallel([requireString, requireNumber, requireNull, requireTrue, requireFalse])
+end function
+paramDefault = new GSINode
+paramDefault.type = "paramDefault"
+paramDefault.ignore = true
+paramDefault.expand_func = function()
+    return self.series([requireAssign, paramAtom])
+end function
+optParamDefault = new GSINode
+optParamDefault.type = "optParamDefault"
+optParamDefault.ignore = true
+optParamDefault.expand_func = function()
+    return self.optional(paramDefault)
+end function
+funcParam = new GSINode
+funcParam.type = "funcParam"
+funcParam.expand_func = function()
+    return self.series([requireIdentifier, optParamDefault])
+end function
+funcParamClause = new GSINode
+funcParamClause.type = "funcParamClause"
+funcParamClause.ignore = true
+funcParamClause.expand_func_bak = function
+    return self.series([requireComma, funcParam])
+end function
+funcParamClauses = new GSINode
+funcParamClauses.type = "funcParamClauses"
+funcParamClauses.ignore = true
+funcParamClauses.expand_func = function
+    return self.any(funcParamClause)
+end function
+funcParamParen = new GSINode
+funcParamParen.type = "funcParamParen"
+funcParamParen.ignore = true
+funcParamParen.expand_func = function
+    return self.series([funcParam, funcParamClauses])
+end function
+optFuncParamParen = new GSINode
+optFuncParamParen.type = "optFuncParamParen"
+optFuncParamParen.ignore = true
+optFuncParamParen.expand_func = function
+    return self.parallel([epsilonNodeNoIgnore, funcParamParen])
+end function
+funcParams = new GSINode
+funcParams.type = "funcParams"
+funcParams.expand_func = function()
+   return self.series([requireOpenParen, optFuncParamParen, requireCloseParen])
+end function
+optFuncParams = new GSINode
+optFuncParams.type = "optFuncParams"
+optFuncParams.ignore = true
+optFuncParams.expand_func = function()
+   return self.parallel([epsilonNodeNoIgnore, funcParams])
+end function
+funcCodeBlock = new GSINode
+funcCodeBlock.type = "funcCodeBlock"
+funcCodeBlock.expand_func = function()
+    return self.any(codeBlock)
+end function
+funcExpression = new GSINode
+funcExpression.type = "funcExpression"
+funcExpression.expand_func = function()
+    return self.series([requireFuncion, optFuncParams, funcCodeBlock, requireEnd, requireFuncion])
+end function
+// function expression end
 GSIparse(tokens)
