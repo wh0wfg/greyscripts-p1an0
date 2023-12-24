@@ -88,7 +88,7 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a = [2131*12, false or not true]
+a = 1 + 1 * 1 and not false
 "
 
 tokens = lexer.tokenize(test)
@@ -167,6 +167,7 @@ GSIparse = function(gsi_tokens)
             func_result = each_node.expand_func()
             next_node = each_node.next_node
             type_stack = each_node.type_stack
+            ignore = each_node.ignore
             print each_node.type
             print "each result:"
             if typeof(func_result) == "list" then
@@ -180,12 +181,16 @@ GSIparse = function(gsi_tokens)
             end if
             if typeof(func_result) == "list" then
                 globals.GSInode_stack.push(func_result)
-                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": []})
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": [], "ignore": ignore})
                 globals.GSIidx_stack.push(globals.GSItoken_idx)
                 break
             else if func_result.flag == true then
                 globals.GSInode_stack.push([next_node])
-                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": func_result["items"]})
+                result_items = func_result["items"]
+                if func_result.ignore then
+                    result_items = []
+                end if
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": result_items, "ignore": ignore})
                 globals.GSIidx_stack.push(globals.GSItoken_idx)
                 break
             else if func_result.flag == false then
@@ -211,20 +216,32 @@ GSIparse = function(gsi_tokens)
             // merge if cureent_ast is leaf
             prev_relation = globals.GSIastRelation(current_ast, prev_ast)
             next_relation =  globals.GSIastRelation(next_ast, current_ast)
-            if prev_relation == "child" and next_relation != "child" then
+            if current_ast.type == "epsilonNode" then
+                globals.GSIast_stack.remove(index)
+            else if prev_relation == "child" and next_relation != "child" then
+                ast.remove("ignore")
                 current_ast.remove("type_stack")
-                prev_ast.items.push(current_ast)
+                if current_ast.items.len != 0 then
+                    if current_ast.ignore then
+                        prev_ast.items.push(current_ast.items)
+                    else
+                        prev_ast.items.push(current_ast)
+                    end if
+                end if
                 globals.GSIast_stack.remove(index)
             else 
                 index = index - 1
             end if
         end while
-        print toJSON(globals.GSIast_stack[0])
+        ast = globals.GSIast_stack[0]
+        ast.remove("ignore")
+        ast.remove("type_stack")
+        print toJSON(ast, true)
         // print toJSON(globals.GSIast_stack[0])
     end if
 end function
 // start basic function
-requireType = function(types, result_type="requireType")
+requireType = function(types, result_type, ignore)
     items = []
     if typeof(types) == "string" then
         types = [types]
@@ -239,9 +256,9 @@ requireType = function(types, result_type="requireType")
         globals.GSItoken_idx = globals.GSItoken_idx + 1
     end for
     // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
-    return {"flag": true, "type": result_type, "items": items}
+    return {"flag": true, "type": result_type, "items": items, "ignore": ignore}
 end function
-requireValue = function(value, result_type="requireValue")
+requireValue = function(value, result_type, ignore)
     items = []
     if typeof(value) == "string" then
         value = [value]
@@ -256,10 +273,10 @@ requireValue = function(value, result_type="requireValue")
         globals.GSItoken_idx = globals.GSItoken_idx + 1
     end for
     // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
-    return {"flag": true, "type": result_type, "items": items}
+    return {"flag": true, "type": result_type, "items": items, "ignore": ignore}
 end function
 // expand_func(): list[GSINode] | {"flag": flag, "type": type, "items": items, "range": range}
-GSINode = {"expand_func": null, "next_node": null, "type_stack": [],"type": null}
+GSINode = {"expand_func": null, "next_node": null, "type_stack": [],"type": null, "ignore": false}
 GSINode.series = function(nodes)
     result_nodes = []
     last_node = new nodes[-1]
@@ -315,6 +332,7 @@ greyscript.expand_func = function()
 end function
 codeBlock = new GSINode
 codeBlock.type = "codeBlock"
+codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
     return self.parallel([variableDeclaration])
 end function
@@ -325,27 +343,32 @@ variableDeclaration.expand_func = function()
 end function
 objectExpression = new GSINode
 objectExpression.type = "objectExpression"
+objectExpression.ignore = true
 objectExpression.expand_func = function()
    return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, evalExpression])
 end function
 // list expression start
 listClause = new GSINode
 listClause.type = "listClause"
+listClause.ignore = true
 listClause.expand_func_bak = function
     return self.series([requireComma, objectExpression])
 end function
 listClauses = new GSINode
 listClauses.type = "listClauses"
+listClauses.ignore = true
 listClauses.expand_func = function
     return self.any(listClause)
 end function
 listElements = new GSINode
 listElements.type = "listElements"
+listElements.ignore = true
 listElements.expand_func = function()
    return self.series([objectExpression, listClauses])
 end function
 optlistElements = new GSINode
 optlistElements.type = "optlistElements"
+optlistElements.ignore = true
 optlistElements.expand_func = function()
    return self.optional(listElements)
 end function
@@ -358,132 +381,140 @@ end function
 // reserved string start
 epsilonNode = new GSINode
 epsilonNode.type = "epsilonNode"
+epsilonNode.ignore = true
 epsilonNode.expand_func = function()
-    return {"flag": true, "type": self.type, "range": null, "items": null}
+    return {"flag": true, "type": self.type, "range": null, "items": null, "ignore": self.ignore}
 end function
 requireIdentifier = new GSINode
 requireIdentifier.type = "requireIdentifier"
 requireIdentifier.expand_func = function
-   return requireType("IDENTIFIER", "requireIdentifier")
+   return requireType("IDENTIFIER", self.type, self.ignore)
 end function
 requireAssign = new GSINode
 requireAssign.type = "requireAssign"
+requireAssign.ignore = true
 requireAssign.expand_func = function()
-   return requireType("ASSIGN", "requireAssign")
+   return requireType("ASSIGN", self.type, self.ignore)
 end function
 requireString = new GSINode
 requireString.type = "requireString"
 requireString.expand_func = function()
-   return requireType("STRING", "requireString")
+   return requireType("STRING", self.type, self.ignore)
 end function
 requireNumber = new GSINode
 requireNumber.type = "requireNumber"
 requireNumber.expand_func = function()
-   return requireType("NUMBER", "requireNumber")
+   return requireType("NUMBER", self.type, self.ignore)
 end function
 requireOpenBracket = new GSINode
 requireOpenBracket.type = "requireOpenBracket"
+requireOpenBracket.ignore = true
 requireOpenBracket.expand_func = function()
-   return requireType("OPEN_BRACKET", "requireOpenBracket")
+   return requireType("OPEN_BRACKET", self.type, self.ignore)
 end function
 requireCloseBracket = new GSINode
 requireCloseBracket.type = "requireCloseBracket"
+requireCloseBracket.ignore = true
 requireCloseBracket.expand_func = function()
-   return requireType("CLOSE_BRACKET", "requireCloseBracket")
+   return requireType("CLOSE_BRACKET", self.type, self.ignore)
 end function
 requireOpenParen = new GSINode
 requireOpenParen.type = "requireOpenParen"
+requireOpenParen.ignore = true
 requireOpenParen.expand_func = function()
-   return requireType("OPEN_PAREN", "requireOpenParen")
+   return requireType("OPEN_PAREN", self.type, self.ignore)
 end function
 requireCloseParen = new GSINode
 requireCloseParen.type = "requireCloseParen"
+requireCloseParen.ignore = true
 requireCloseParen.expand_func = function()
-   return requireType("CLOSE_PAREN", "requireCloseParen")
+   return requireType("CLOSE_PAREN", self.type, self.ignore)
 end function
 requireComma = new GSINode
 requireComma.type = "requireComma"
+requireComma.ignore = true
 requireComma.expand_func = function()
-   return requireType("COMMA", "requireComma")
+   return requireType("COMMA", self.type, self.ignore)
 end function
 // reserved string end
 // math operator start
 requireStar = new GSINode
 requireStar.type = "requireStar"
 requireStar.expand_func = function()
-   return requireType("STAR", "requireStar")
+   return requireType("STAR", self.type, self.ignore)
 end function
 requireDiv = new GSINode
 requireDiv.type = "requireDiv"
 requireDiv.expand_func = function()
-   return requireType("DIV", "requireDiv")
+   return requireType("DIV", self.type, self.ignore)
 end function
 requireMod = new GSINode
 requireMod.type = "requireMod"
 requireMod.expand_func = function()
-   return requireType("MOD", "requireMod")
+   return requireType("MOD", self.type, self.ignore)
 end function
 requireAdd = new GSINode
 requireAdd.type = "requireAdd"
 requireAdd.expand_func = function()
-   return requireType("ADD", "requireAdd")
+   return requireType("ADD", self.type, self.ignore)
 end function
 requireMinus = new GSINode
 requireMinus.type = "requireMinus"
 requireMinus.expand_func = function()
-   return requireType("MINUS", "requireMinus")
+   return requireType("MINUS", self.type, self.ignore)
 end function
 // math operator end
 // logical operator start
 requireEquals = new GSINode
 requireEquals.type = "requireEquals"
 requireEquals.expand_func = function()
-   return requireType("EQUALS", "requireEquals")
+   return requireType("EQUALS", self.type, self.ignore)
 end function
 requireNoteq = new GSINode
 requireNoteq.type = "requireNoteq"
 requireNoteq.expand_func = function()
-   return requireType("NOT_EQ", "requireNoteq")
+   return requireType("NOT_EQ", self.type, self.ignore)
 end function
 requireGteq = new GSINode
 requireGteq.type = "requireGteq"
 requireGteq.expand_func = function()
-   return requireType("GT_EQ", "requireGteq")
+   return requireType("GT_EQ", self.type, self.ignore)
 end function
 requireLteq = new GSINode
 requireLteq.type = "requireLteq"
 requireLteq.expand_func = function()
-   return requireType("LT_EQ", "requireLteq")
+   return requireType("LT_EQ", self.type, self.ignore)
 end function
 requireGt = new GSINode
 requireGt.type = "requireGt"
 requireGt.expand_func = function()
-   return requireType("GREATER_THAN", "requireGt")
+   return requireType("GREATER_THAN", self.type, self.ignore)
 end function
 requireLt = new GSINode
 requireLt.type = "requireLt"
 requireLt.expand_func = function()
-   return requireType("LESS_THAN", "requireLt")
+   return requireType("LESS_THAN", self.type, self.ignore)
 end function
 requireNot = new GSINode
 requireNot.type = "requireNot"
 requireNot.expand_func = function()
-   return requireValue("not", "requireNot")
+   return requireType("not", self.type, self.ignore)
 end function
 requireAnd = new GSINode
 requireAnd.type = "requireAnd"
 requireAnd.expand_func = function()
-   return requireType("AND", "requireAnd")
+   return requireType("AND", self.type, self.ignore)
 end function
 requireOr = new GSINode
 requireOr.type = "requireOr"
 requireOr.expand_func = function()
-   return requireType("OR", "requireOr")
+   return requireType("OR", self.type, self.ignore)
 end function
 // logical operator end
 // eval expression start
 optObjectExpression = new GSINode
 optObjectExpression.type = "optObjectExpression"
+optObjectExpression.ignore = true
 optObjectExpression.expand_func = function()
     return self.optional(objectExpression)
 end function
@@ -519,6 +550,7 @@ anyMdmEval.expand_func = function()
 end function
 pri3EvalExpression = new GSINode
 pri3EvalExpression.type = "pri3EvalExpression"
+pri3EvalExpression.ignore = true
 pri3EvalExpression.expand_func = function() // * /  %
    return self.series([evalAtom, anyMdmEval])
 end function
@@ -539,6 +571,7 @@ anyAmEval.expand_func = function() // + -
 end function
 pri4EvalExpression = new GSINode
 pri4EvalExpression.type = "pri4EvalExpression"
+pri4EvalExpression.ignore = true
 pri4EvalExpression.expand_func = function() // + -
    return self.series([pri3EvalExpression, anyAmEval])
 end function
@@ -559,6 +592,7 @@ anyCompEval.expand_func = function() // >= <= > <
 end function
 pri5EvalExpression = new GSINode
 pri5EvalExpression.type = "pri5EvalExpression"
+pri5EvalExpression.ignore = true
 pri5EvalExpression.expand_func = function() // >= <= > <
    return self.series([pri4EvalExpression, anyCompEval])
 end function
@@ -579,6 +613,7 @@ anyWeqEval.expand_func = function() // != ==
 end function
 pri6EvalExpression = new GSINode
 pri6EvalExpression.type = "pri6EvalExpression"
+pri6EvalExpression.ignore = true
 pri6EvalExpression.expand_func = function() // != ==
    return self.series([pri5EvalExpression, anyWeqEval])
 end function
@@ -594,6 +629,7 @@ anyAndEval.expand_func = function() // and
 end function
 pri7EvalExpression = new GSINode
 pri7EvalExpression.type = "pri7EvalExpression"
+pri7EvalExpression.ignore = true
 pri7EvalExpression.expand_func = function() // and
    return self.series([pri6EvalExpression, anyAndEval])
 end function
@@ -609,6 +645,7 @@ anyOrEval.expand_func = function() // or
 end function
 pri8EvalExpression = new GSINode
 pri8EvalExpression.type = "pri8EvalExpression"
+pri8EvalExpression.ignore = true
 pri8EvalExpression.expand_func = function() // or
    return self.series([pri7EvalExpression, anyOrEval])
 end function
@@ -619,6 +656,7 @@ evalExpression.expand_func = function()
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
+evalAtom.ignore = true
 evalAtom.expand_func = function()
    return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, pri1EvalExpression, pri2EvalExpression])
 end function
