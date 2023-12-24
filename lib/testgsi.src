@@ -91,7 +91,7 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a = 1 + 1 * 1 and not false
+a = {c: 1, d: 2, e: [{}, 1231, (), 3]}
 "
 
 tokens = lexer.tokenize(test)
@@ -348,7 +348,7 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, evalExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression])
 end function
 // list expression start
 listClause = new GSINode
@@ -369,24 +369,65 @@ listElements.ignore = true
 listElements.expand_func = function()
    return self.series([objectExpression, listClauses])
 end function
-optlistElements = new GSINode
-optlistElements.type = "optlistElements"
-optlistElements.ignore = true
-optlistElements.expand_func = function()
-   return self.optional(listElements)
+optListElements = new GSINode
+optListElements.type = "optListElements"
+optListElements.ignore = true
+optListElements.expand_func = function()
+   return self.parallel([epsilonNodeNoIgnore, listElements])
 end function
 listExpression = new GSINode
 listExpression.type = "listExpression"
 listExpression.expand_func = function()
-   return self.series([requireOpenBracket, optlistElements, requireCloseBracket])
+   return self.series([requireOpenBracket, optListElements, requireCloseBracket])
 end function
 // list expression end
+// map expression start
+mapClause = new GSINode
+mapClause.type = "mapClause"
+mapClause.ignore = true
+mapClause.expand_func_bak = function
+    return self.series([requireComma, pairExpression])
+end function
+mapClauses = new GSINode
+mapClauses.type = "mapClauses"
+mapClauses.ignore = true
+mapClauses.expand_func = function
+    return self.any(mapClause)
+end function
+pairExpression = new GSINode
+pairExpression.type = "pairExpression"
+pairExpression.expand_func = function()
+   return self.series([objectExpression, requireColon, objectExpression])
+end function
+mapElements = new GSINode
+mapElements.type = "mapElements"
+mapElements.ignore = true
+mapElements.expand_func = function()
+   return self.series([pairExpression, mapClauses])
+end function
+optMapElements = new GSINode
+optMapElements.type = "optMapElements"
+optMapElements.ignore = true
+optMapElements.expand_func = function()
+   return self.parallel([epsilonNodeNoIgnore, mapElements])
+end function
+mapExpression = new GSINode
+mapExpression.type = "mapExpression"
+mapExpression.expand_func = function()
+   return self.series([requireOpenBrace, optMapElements, requireCloseBrace])
+end function
+// map expression end
 // reserved string start
 epsilonNode = new GSINode
 epsilonNode.type = "epsilonNode"
 epsilonNode.ignore = true
 epsilonNode.expand_func = function()
     return {"flag": true, "type": self.type, "range": null, "items": null, "ignore": self.ignore}
+end function
+epsilonNodeNoIgnore = new GSINode
+epsilonNodeNoIgnore.type = "epsilonNodeNoIgnore"
+epsilonNodeNoIgnore.expand_func = function()
+    return {"flag": true, "type": self.type, "range": null, "items": [null], "ignore": self.ignore}
 end function
 requireIdentifier = new GSINode
 requireIdentifier.type = "requireIdentifier"
@@ -433,11 +474,29 @@ requireCloseParen.ignore = true
 requireCloseParen.expand_func = function()
    return requireType("CLOSE_PAREN", self.type, self.ignore)
 end function
+requireOpenBrace = new GSINode
+requireOpenBrace.type = "requireOpenBrace"
+requireOpenBrace.ignore = true
+requireOpenBrace.expand_func = function()
+   return requireType("OPEN_BRACE", self.type, self.ignore)
+end function
+requireCloseBrace = new GSINode
+requireCloseBrace.type = "requireCloseBrace"
+requireCloseBrace.ignore = true
+requireCloseBrace.expand_func = function()
+   return requireType("CLOSE_BRACE", self.type, self.ignore)
+end function
 requireComma = new GSINode
 requireComma.type = "requireComma"
 requireComma.ignore = true
 requireComma.expand_func = function()
    return requireType("COMMA", self.type, self.ignore)
+end function
+requireColon = new GSINode
+requireColon.type = "requireColon"
+requireColon.ignore = true
+requireColon.expand_func = function()
+   return requireType("COLON", self.type, self.ignore)
 end function
 requireNull = new GSINode
 requireNull.type = "requireNull"
@@ -534,7 +593,7 @@ optObjectExpression = new GSINode
 optObjectExpression.type = "optObjectExpression"
 optObjectExpression.ignore = true
 optObjectExpression.expand_func = function()
-    return self.optional(objectExpression)
+    return self.parallel([epsilonNodeNoIgnore, objectExpression])
 end function
 pri1EvalExpression = new GSINode
 pri1EvalExpression.type = "pri1EvalExpression"
@@ -687,7 +746,7 @@ evalAtom = new GSINode
 evalAtom.type = "evalAtom"
 evalAtom.ignore = true
 evalAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, pri1EvalExpression, pri2EvalExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression])
 end function
 // eval expression end
 GSIparse(tokens)
