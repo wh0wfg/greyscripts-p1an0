@@ -82,6 +82,7 @@ lexer.addRule("FUNCTION", "^function(?![A-Za-z0-9_])")
 lexer.addRule("NEW", "^new(?![A-Za-z0-9_])")
 lexer.addRule("RETURN", "^return(?![A-Za-z0-9_])")
 lexer.addRule("END", "^end(?![A-Za-z0-9_])")
+lexer.addRule("IN", "^in(?![A-Za-z0-9_])")
 lexer.addRule("AND", "^and(?![A-Za-z0-9_])")
 lexer.addRule("OR", "^or(?![A-Za-z0-9_])")
 lexer.addRule("NOT", "^not(?![A-Za-z0-9_])")
@@ -93,17 +94,11 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-if true then
-    a = []
-else if true then
-    c = {}
-else if true then
-    d = ()
-else if true then
-    e = 1
-else
-    f = 1 + 1 * 1 and 1 or not 1
-end if
+for i in a
+    for j in b
+        c = i
+    end for
+end for
 "
 
 tokens = lexer.tokenize(test)
@@ -349,7 +344,7 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement])
+    return self.parallel([variableDeclaration, ifStatement, forStatement])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
@@ -584,6 +579,12 @@ requireEnd.type = "requireEnd"
 requireEnd.ignore = true
 requireEnd.expand_func = function()
    return requireType("END", self.type, self.ignore)
+end function
+requireIn = new GSINode
+requireIn.type = "requireIn"
+requireIn.ignore = true
+requireIn.expand_func = function()
+   return requireType("IN", self.type, self.ignore)
 end function
 // reserved string end
 // math operator start
@@ -855,4 +856,16 @@ anyElifStatement.expand_func = function()
     return self.any(elifStatement)
 end function
 // if statement end
+// for statement start
+forCodeBlock = new GSINode
+forCodeBlock.type = "forCodeBlock"
+forCodeBlock.expand_func = function()
+    return self.any(codeBlock)
+end function
+forStatement = new GSINode
+forStatement.type = "forStatement"
+forStatement.expand_func = function()
+    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, forCodeBlock, requireEnd, requireFor])
+end function
+// for statement end
 GSIparse(tokens)
