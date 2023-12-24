@@ -74,6 +74,8 @@ lexer.addRule("CLOSE_BRACE", "^\}")
 lexer.addRule("OPEN_BRACKET", "^\[")
 lexer.addRule("CLOSE_BRACKET", "^\]")
 lexer.addRule("IF", "^if(?![A-Za-z0-9_])")
+lexer.addRule("THEN", "^then(?![A-Za-z0-9_])")
+lexer.addRule("ELSE", "^else(?![A-Za-z0-9_])")
 lexer.addRule("WHILE", "^while(?![A-Za-z0-9_])")
 lexer.addRule("FOR", "^for(?![A-Za-z0-9_])")
 lexer.addRule("FUNCTION", "^function(?![A-Za-z0-9_])")
@@ -91,7 +93,17 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a = {c: 1, d: 2, e: [{}, 1231, (), 3]}
+if true then
+    a = []
+else if true then
+    c = {}
+else if true then
+    d = ()
+else if true then
+    e = 1
+else
+    f = 1 + 1 * 1 and 1 or not 1
+end if
 "
 
 tokens = lexer.tokenize(test)
@@ -307,7 +319,7 @@ GSINode.parallel = function(nodes)
     return result_nodes
 end function
 GSINode.optional = function(node)
-    return self.parallel([epsilonNode, node])
+    return self.parallel([node, epsilonNode])
 end function
 // require expand_func_bak
 GSINode.any = function(node)
@@ -323,7 +335,7 @@ GSINode.any = function(node)
         tmp_epsilonNode = new epsilonNode
         tmp_epsilonNode.next_node = result_node.next_node_bak
         tmp_epsilonNode.type_stack = result_node.type_stack + [result_node.type]
-        return [tmp_epsilonNode] + result_node.expand_func_bak
+        return result_node.expand_func_bak + [tmp_epsilonNode]
     end function
     return [result_node]
 end function
@@ -337,7 +349,7 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration])
+    return self.parallel([variableDeclaration, ifStatement])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
@@ -349,6 +361,12 @@ objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
    return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression])
+end function
+evalAtom = new GSINode
+evalAtom.type = "evalAtom"
+evalAtom.ignore = true
+evalAtom.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression])
 end function
 // list expression start
 listClause = new GSINode
@@ -512,6 +530,60 @@ requireFalse = new GSINode
 requireFalse.type = "requireFalse"
 requireFalse.expand_func = function()
    return requireType("FALSE", self.type, self.ignore)
+end function
+requireIf = new GSINode
+requireIf.type = "requireIf"
+requireIf.ignore = true
+requireIf.expand_func = function()
+   return requireType("IF", self.type, self.ignore)
+end function
+requireThen = new GSINode
+requireThen.type = "requireThen"
+requireThen.ignore = true
+requireThen.expand_func = function()
+   return requireType("THEN", self.type, self.ignore)
+end function
+requireElse = new GSINode
+requireElse.type = "requireElse"
+requireElse.ignore = true
+requireElse.expand_func = function()
+   return requireType("ELSE", self.type, self.ignore)
+end function
+requireWhile = new GSINode
+requireWhile.type = "requireWhile"
+requireWhile.ignore = true
+requireWhile.expand_func = function()
+   return requireType("WHILE", self.type, self.ignore)
+end function
+requireFor = new GSINode
+requireFor.type = "requireFor"
+requireFor.ignore = true
+requireFor.expand_func = function()
+   return requireType("FOR", self.type, self.ignore)
+end function
+requireFuncion = new GSINode
+requireFuncion.type = "requireFuncion"
+requireFuncion.ignore = true
+requireFuncion.expand_func = function()
+   return requireType("FUNCTION", self.type, self.ignore)
+end function
+requireNew = new GSINode
+requireNew.type = "requireNew"
+requireNew.ignore = true
+requireNew.expand_func = function()
+   return requireType("NEW", self.type, self.ignore)
+end function
+requireReturn = new GSINode
+requireReturn.type = "requireReturn"
+requireReturn.ignore = true
+requireReturn.expand_func = function()
+   return requireType("RETURN", self.type, self.ignore)
+end function
+requireEnd = new GSINode
+requireEnd.type = "requireEnd"
+requireEnd.ignore = true
+requireEnd.expand_func = function()
+   return requireType("END", self.type, self.ignore)
 end function
 // reserved string end
 // math operator start
@@ -742,11 +814,45 @@ evalExpression.type = "evalExpression"
 evalExpression.expand_func = function()
     return self.parallel([pri8EvalExpression])
 end function
-evalAtom = new GSINode
-evalAtom.type = "evalAtom"
-evalAtom.ignore = true
-evalAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression])
-end function
 // eval expression end
+// if statement start
+ifStatement = new GSINode
+ifStatement.type = "ifStatement"
+ifStatement.expand_func = function()
+    return self.series([requireIf, evalExpression, requireThen, ifConsequent, anyElifStatement, optElseStatement, requireEnd, requireIf])
+end function
+ifConsequent = new GSINode
+ifConsequent.type = "ifConsequent"
+ifConsequent.expand_func = function()
+    return self.any(codeBlock)
+end function
+ifAlternate = new GSINode
+ifAlternate.type = "ifAlternate"
+ifAlternate.expand_func = function()
+    return self.any(codeBlock)
+end function
+elseStatement = new GSINode
+elseStatement.type = "elseStatement"
+elseStatement.ignore = true
+elseStatement.expand_func = function()
+    return self.series([requireElse, ifAlternate])
+end function
+optElseStatement = new GSINode
+optElseStatement.type = "optElseStatement"
+optElseStatement.ignore = true
+optElseStatement.expand_func = function()
+    return self.optional(elseStatement)
+end function
+elifStatement = new GSINode
+elifStatement.type = "elifStatement"
+elifStatement.expand_func_bak = function()
+    return self.series([requireElse, requireIf, evalExpression, requireThen, ifAlternate])
+end function
+anyElifStatement = new GSINode
+anyElifStatement.type = "anyElifStatement"
+anyElifStatement.ignore = true
+anyElifStatement.expand_func = function()
+    return self.any(elifStatement)
+end function
+// if statement end
 GSIparse(tokens)
