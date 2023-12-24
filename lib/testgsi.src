@@ -79,8 +79,8 @@ lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 
 test = "
-a = 123
-c = a
+a = [[[1], [1,2]], [[[[]]]], [[[[[[[[]]]]]]]]]
+c = 1
 "
 
 tokens = lexer.tokenize(test)
@@ -95,13 +95,16 @@ GSIastRelation = function(current_ast, last_ast)
     last_ts = last_ast.type_stack
     current_ts = current_ast.type_stack
     if last_ts.len == current_ts.len then
-        is_brother = true
         for i in last_ts.indexes
             if last_ts[i] != current_ts[i] then
                 return "other"
             end if
         end for
-        return "brother"
+        if current_ts[-1] == current_ast.type then
+            return "child"
+        else 
+            return "brother"
+        end if
     else if last_ts.len == current_ts.len - 1 then
         full_ts = last_ts + [last_ast.type]
         for i in full_ts.indexes
@@ -124,27 +127,19 @@ GSIparse = function(gsi_tokens)
 
     while globals.GSInode_stack.len > 0 and globals.GSItoken_idx < globals.GSItokens.len
         nodes = globals.GSInode_stack[-1]
-        // print globals.GSItoken_idx
         if nodes.len <= 0 or nodes[0] == null then
             globals.GSInode_stack.pop
             globals.GSIast_stack.pop
             continue
         end if
-        while globals.GSIast_stack.len >= 3
-            current_ast = globals.GSIast_stack.pop
-            last_ast = globals.GSIast_stack.pop
-            ast_relation = GSIastRelation(current_ast, last_ast)
-            if ast_relation != "child" then
-                globals.GSIast_stack[-1].items.push(last_ast)
-                each_range = {"start": globals.GSIast_stack[-1].items[0]["range"]["start"], "end": globals.GSIast_stack[-1].items[-1]["range"]["end"]}
-                globals.GSIast_stack[-1]["range"] = each_range
-                globals.GSIast_stack.push(current_ast)
-            else
-                globals.GSIast_stack.push(last_ast)
-                globals.GSIast_stack.push(current_ast)
-                break
-            end if
-        end while
+
+        print globals.GSItoken_idx
+        print globals.GSItokens[globals.GSItoken_idx]
+        debug = []
+        for each in nodes
+            debug.push(each.type)
+        end for
+        print debug
 
         globals.GSIidx_stack.push(globals.GSItoken_idx)
         pass_flag = false
@@ -172,13 +167,7 @@ GSIparse = function(gsi_tokens)
     end while
     if globals.GSItoken_idx == globals.GSItokens.len then
         print "YES!"
-        while globals.GSIast_stack.len >= 2
-            current_ast = globals.GSIast_stack.pop
-            globals.GSIast_stack[-1].items.push(current_ast)
-            each_range = {"start": globals.GSIast_stack[-1].items[0]["range"]["start"], "end": globals.GSIast_stack[-1].items[-1]["range"]["end"]}
-            globals.GSIast_stack[-1]["range"] = each_range
-        end while
-        print toJSON(globals.GSIast_stack[0])
+        print toJSON(globals.GSIast_stack)
         // print toJSON(globals.GSIast_stack[0])
     end if
 end function
@@ -248,11 +237,20 @@ end function
 GSINode.optional = function(node)
     return self.parallel([epsilonNode, node])
 end function
+// require expand_func_bak
 GSINode.any = function(node)
     result_node = new node
+    result_node.next_node_bak = self.next_node
     result_node.next_node = result_node
     result_node.type_stack = self.type_stack + [self.type]
-    return [result_node, self]
+
+    result_node.expand_func = function()
+        tmp_epsilonNode = new epsilonNode
+        tmp_epsilonNode.next_node = result_node.next_node_bak
+        tmp_epsilonNode.type_stack = result_node.type_stack + [result_node.type]
+        return [tmp_epsilonNode] + result_node.expand_func_bak + [result_node]
+    end function
+    return [result_node]
 end function
 
 greyscript = new GSINode
@@ -262,7 +260,7 @@ greyscript.expand_func = function()
 end function
 codeBlock = new GSINode
 codeBlock.type = "codeBlock"
-codeBlock.expand_func = function()
+codeBlock.expand_func_bak = function()
     return self.parallel([variableDeclaration])
 end function
 variableDeclaration = new GSINode
@@ -273,14 +271,40 @@ end function
 objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber])
+   return self.parallel([requireIdentifier, requireString, requireNumber, listExpression])
 end function
-
+// list expression start
+listClause = new GSINode
+listClause.type = "listClause"
+listClause.expand_func_bak = function
+    return self.series([requireComma, objectExpression])
+end function
+listClauses = new GSINode
+listClauses.type = "listClauses"
+listClauses.expand_func = function
+    return self.any(listClause)
+end function
+listElements = new GSINode
+listElements.type = "listElements"
+listElements.expand_func = function()
+   return self.series([objectExpression, listClauses])
+end function
+optlistElements = new GSINode
+optlistElements.type = "optlistElements"
+optlistElements.expand_func = function()
+   return self.optional(listElements)
+end function
+listExpression = new GSINode
+listExpression.type = "listExpression"
+listExpression.expand_func = function()
+   return self.series([requireOpenBracket, optlistElements, requireCloseBracket])
+end function
+// list expression end
 // reserved string start
 epsilonNode = new GSINode
 epsilonNode.type = "epsilonNode"
 epsilonNode.expand_func = function()
-    return {"flag": true, "type": result_type}
+    return {"flag": true, "type": self.type, "range": null, "items": null}
 end function
 requireIdentifier = new GSINode
 requireIdentifier.type = "requireIdentifier"
@@ -301,6 +325,21 @@ requireNumber = new GSINode
 requireNumber.type = "requireNumber"
 requireNumber.expand_func = function()
    return requireType("NUMBER", "requireNumber")
+end function
+requireOpenBracket = new GSINode
+requireOpenBracket.type = "requireOpenBracket"
+requireOpenBracket.expand_func = function()
+   return requireType("OPEN_BRACKET", "requireOpenBracket")
+end function
+requireCloseBracket = new GSINode
+requireCloseBracket.type = "requireCloseBracket"
+requireCloseBracket.expand_func = function()
+   return requireType("CLOSE_BRACKET", "requireCloseBracket")
+end function
+requireComma = new GSINode
+requireComma.type = "requireComma"
+requireComma.expand_func = function()
+   return requireType("COMMA", "requireComma")
 end function
 // reserved string end
 GSIparse(tokens)

@@ -287,12 +287,6 @@ end function
 requireLt = function()
    requireType("LESS_THAN", "requireLt")
 end function
-// binaryLogicalOperator = function()
-//    return parallel([@requireAnd, @requireOr, @requireEquals, @requireNoteq, @requireGteq, @requireLteq, @requireGt, @requireLt], "logicalOperator")
-// end function
-// logicalOperator = function()
-//    return parallel([@requireNot, @binaryLogicalOperator], "logicalOperator")
-// end function
 requireNot = function()
    return requireValue("not", "requireNot")
 end function
