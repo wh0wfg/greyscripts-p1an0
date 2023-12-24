@@ -73,13 +73,22 @@ lexer.addRule("OPEN_BRACE", "^\{")
 lexer.addRule("CLOSE_BRACE", "^\}")
 lexer.addRule("OPEN_BRACKET", "^\[")
 lexer.addRule("CLOSE_BRACKET", "^\]")
+lexer.addRule("IF", "^if(?![A-Za-z0-9_])")
+lexer.addRule("WHILE", "^while(?![A-Za-z0-9_])")
+lexer.addRule("FOR", "^for(?![A-Za-z0-9_])")
+lexer.addRule("FUNCTION", "^function(?![A-Za-z0-9_])")
+lexer.addRule("NEW", "^new(?![A-Za-z0-9_])")
+lexer.addRule("RETURN", "^return(?![A-Za-z0-9_])")
+lexer.addRule("AND", "^and(?![A-Za-z0-9_])")
+lexer.addRule("OR", "^or(?![A-Za-z0-9_])")
+lexer.addRule("NOT", "^not(?![A-Za-z0-9_])")
+lexer.addRule("END", "^end(?![A-Za-z0-9_])")
 lexer.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
 lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
-
 test = "
-a = 1+1
+a = 1 and 1
 "
 
 tokens = lexer.tokenize(test)
@@ -460,19 +469,24 @@ end function
 requireAnd = new GSINode
 requireAnd.type = "requireAnd"
 requireAnd.expand_func = function()
-   return requireValue("and", "requireAnd")
+   return requireType("AND", "requireAnd")
 end function
 requireOr = new GSINode
 requireOr.type = "requireOr"
 requireOr.expand_func = function()
-   return requireValue("or", "requireOr")
+   return requireType("OR", "requireOr")
 end function
 // logical operator end
 // eval expression start
+optObjectExpression = new GSINode
+optObjectExpression.type = "optObjectExpression"
+optObjectExpression.expand_func = function()
+    return self.optional(objectExpression)
+end function
 pri1EvalExpression = new GSINode
 pri1EvalExpression.type = "pri1EvalExpression"
 pri1EvalExpression.expand_func = function() // ()
-   return self.series([requireOpenParen, objectExpression, requireCloseParen])
+   return self.series([requireOpenParen, optObjectExpression, requireCloseParen])
 end function
 pri2Operator = new GSINode
 pri2Operator.type = "pri2Operator"
@@ -489,55 +503,90 @@ pri3Operator.type = "pri3Operator"
 pri3Operator.expand_func = function()
    return self.parallel([requireStar, requireDiv, requireMod])
 end function
+mdmEvalExpression = new GSINode
+mdmEvalExpression.type = "mdmEvalExpression"
+mdmEvalExpression.expand_func = function()
+    return self.series([pri3EvalExpression, pri3Operator, evalAtom])
+end function
 pri3EvalExpression = new GSINode
 pri3EvalExpression.type = "pri3EvalExpression"
 pri3EvalExpression.expand_func = function() // * /  %
-   return self.series([objectExpression, pri3Operator, objectExpression])
+   return self.parallel([evalAtom, mdmEvalExpression])
 end function
 pri4Operator = new GSINode
 pri4Operator.type = "pri4Operator"
 pri4Operator.expand_func = function()
    return self.parallel([requireAdd, requireMinus])
 end function
+amEvalExpression = new GSINode
+amEvalExpression.type = "amEvalExpression"
+amEvalExpression.expand_func = function() // + -
+   return self.series([pri4EvalExpression, pri4Operator, pri3EvalExpression])
+end function
 pri4EvalExpression = new GSINode
 pri4EvalExpression.type = "pri4EvalExpression"
 pri4EvalExpression.expand_func = function() // + -
-   return self.series([objectExpression, pri4Operator, objectExpression])
+   return self.parallel([pri3EvalExpression, amEvalExpression])
 end function
 pri5Operator = new GSINode
 pri5Operator.type = "pri5Operator"
 pri5Operator.expand_func = function()
    return self.parallel([requireGteq, requireLteq, requireGt, requireLt])
 end function
+compEvalExpression = new GSINode
+compEvalExpression.type = "compEvalExpression"
+compEvalExpression.expand_func = function() // >= <= > <
+   return self.series([pri5EvalExpression, pri5Operator, pri4EvalExpression])
+end function
 pri5EvalExpression = new GSINode
 pri5EvalExpression.type = "pri5EvalExpression"
 pri5EvalExpression.expand_func = function() // >= <= > <
-   return self.series([objectExpression, pri5Operator, objectExpression])
+   return self.parallel([pri4EvalExpression, compEvalExpression])
 end function
 pri6Operator = new GSINode
 pri6Operator.type = "pri6Operator"
 pri6Operator.expand_func = function()
    return self.parallel([requireEquals, requireNoteq])
 end function
+weqEvalExpression = new GSINode
+weqEvalExpression.type = "weqEvalExpression"
+weqEvalExpression.expand_func = function() // != ==
+   return self.series([pri6EvalExpression, pri6Operator, pri5EvalExpression])
+end function
 pri6EvalExpression = new GSINode
 pri6EvalExpression.type = "pri6EvalExpression"
 pri6EvalExpression.expand_func = function() // != ==
-   return self.series([objectExpression, pri6Operator, objectExpression])
+   return self.parallel([pri5EvalExpression, weqEvalExpression])
+end function
+andEvalExpression = new GSINode
+andEvalExpression.type = "andEvalExpression"
+andEvalExpression.expand_func = function() // and
+   return self.series([pri7EvalExpression, requireAnd, pri6EvalExpression])
 end function
 pri7EvalExpression = new GSINode
 pri7EvalExpression.type = "pri7EvalExpression"
 pri7EvalExpression.expand_func = function() // and
-   return self.series([objectExpression, requireAnd, objectExpression])
+   return self.parallel([pri6EvalExpression, andEvalExpression])
+end function
+orEvalExpression = new GSINode
+orEvalExpression.type = "orEvalExpression"
+orEvalExpression.expand_func = function() // or
+   return self.series([pri8EvalExpression, requireOr, pri7EvalExpression])
 end function
 pri8EvalExpression = new GSINode
 pri8EvalExpression.type = "pri8EvalExpression"
 pri8EvalExpression.expand_func = function() // or
-   return self.series([objectExpression, requireOr, objectExpression])
+   return self.parallel([pri7EvalExpression, orEvalExpression])
 end function
 evalExpression = new GSINode
 evalExpression.type = "evalExpression"
 evalExpression.expand_func = function()
-    return self.parallel([objectExpression, pri1EvalExpression, pri2EvalExpression, pri3EvalExpression, pri4EvalExpression, pri5EvalExpression, pri6EvalExpression, pri7EvalExpression, pri8EvalExpression])
+    return self.parallel([pri8EvalExpression])
+end function
+evalAtom = new GSINode
+evalAtom.type = "evalAtom"
+evalAtom.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber, listExpression, pri1EvalExpression, pri2EvalExpression])
 end function
 // eval expression end
 GSIparse(tokens)
