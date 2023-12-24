@@ -79,8 +79,8 @@ lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 
 test = "
-a = [[[1], [1,2]], [[[[]]]], [[[[[[[[]]]]]]]]]
-c = 1
+a = [1, 2, 3, 4, 5, 6]
+c = [[1, 2], [[3, 4], [5, 6]]]
 "
 
 tokens = lexer.tokenize(test)
@@ -92,6 +92,10 @@ GSInode_stack = []
 GSIast_stack = []
 GSItokens = []
 GSIastRelation = function(current_ast, last_ast)
+    if current_ast == null or last_ast == null then
+        return "other"
+    end if
+
     last_ts = last_ast.type_stack
     current_ts = current_ast.type_stack
     if last_ts.len == current_ts.len then
@@ -154,7 +158,7 @@ GSIparse = function(gsi_tokens)
                 break
             else if func_result.flag == true then
                 globals.GSInode_stack.push([next_node])
-                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": func_result["items"], "range": func_result["range"]})
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": func_result["items"]})
                 globals.GSIidx_stack.pop
                 pass_flag = true
                 break
@@ -167,7 +171,30 @@ GSIparse = function(gsi_tokens)
     end while
     if globals.GSItoken_idx == globals.GSItokens.len then
         print "YES!"
-        print toJSON(globals.GSIast_stack)
+        index = globals.GSIast_stack.len - 1
+        while globals.GSIast_stack.len > 1
+            prev_ast = null
+            if index+1 < globals.GSIast_stack.len then
+                prev_ast = globals.GSIast_stack[index-1]
+            end if
+            current_ast = globals.GSIast_stack[index]
+            next_ast = null
+            if index+1 < globals.GSIast_stack.len then
+                next_ast = globals.GSIast_stack[index+1]
+            end if
+            
+            // merge if cureent_ast is leaf
+            prev_relation = globals.GSIastRelation(current_ast, prev_ast)
+            next_relation =  globals.GSIastRelation(next_ast, current_ast)
+            if prev_relation == "child" and next_relation != "child" then
+                current_ast.remove("type_stack")
+                prev_ast.items.push(current_ast)
+                globals.GSIast_stack.remove(index)
+            else 
+                index = index - 1
+            end if
+        end while
+        print toJSON(globals.GSIast_stack[0])
         // print toJSON(globals.GSIast_stack[0])
     end if
 end function
@@ -186,8 +213,8 @@ requireType = function(types, result_type="requireType")
         items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
         globals.GSItoken_idx = globals.GSItoken_idx + 1
     end for
-    ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
-    return {"flag": true, "type": result_type, "items": items, "range": ranges}
+    // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
+    return {"flag": true, "type": result_type, "items": items}
 end function
 requireValue = function(value, result_type="requireValue")
     items = []
@@ -203,8 +230,8 @@ requireValue = function(value, result_type="requireValue")
         items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
         globals.GSItoken_idx = globals.GSItoken_idx + 1
     end for
-    ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
-    return {"flag": true, "type": result_type, "items": items, "range": ranges}
+    // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
+    return {"flag": true, "type": result_type, "items": items}
 end function
 // expand_func(): list[GSINode] | {"flag": flag, "type": type, "items": items, "range": range}
 GSINode = {"expand_func": null, "next_node": null, "type_stack": [],"type": null}
