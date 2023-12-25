@@ -360,7 +360,7 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, funcExpression, callExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, funcExpression, callExpression, newExpression])
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
@@ -1003,4 +1003,11 @@ callExpression.expand_func = function()
     return self.series([requireIdentifier, callParams])
 end function
 // call expression end
+// new expression start
+newExpression = new GSINode
+newExpression.type = "newExpression"
+newExpression.expand_func = function()
+    return self.series([requireNew, objectExpression])
+end function
+// new expression end
 GSIparse(tokens)
