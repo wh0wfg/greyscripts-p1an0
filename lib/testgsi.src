@@ -351,7 +351,7 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, callExpression, objectExpression])
+    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, objectExpression])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
@@ -362,7 +362,7 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, funcExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, funcExpression, callExpression])
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
