@@ -340,12 +340,12 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, objectExpression])
+    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, objectExpression, epsilonNode])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
 variableDeclaration.expand_func = function()
-    return self.series([requireIdentifier, requireAssign, objectExpression])
+    return self.series([requireIdentifier, requireAssign, objectExpression, requireEOL])
 end function
 objectExpression = new GSINode
 objectExpression.type = "objectExpression"
@@ -852,7 +852,7 @@ end function
 ifStatement = new GSINode
 ifStatement.type = "ifStatement"
 ifStatement.expand_func = function()
-    return self.series([requireIf, evalExpression, requireThen, ifConsequent, anyElifStatement, optElseStatement, requireEnd, requireIf])
+    return self.series([requireIf, evalExpression, requireThen, requireEOL, ifConsequent, requireEOL, anyElifStatement, optElseStatement, requireEnd, requireIf, requireEOL])
 end function
 ifConsequent = new GSINode
 ifConsequent.type = "ifConsequent"
@@ -868,7 +868,7 @@ elseStatement = new GSINode
 elseStatement.type = "elseStatement"
 elseStatement.ignore = true
 elseStatement.expand_func = function()
-    return self.series([requireElse, ifAlternate])
+    return self.series([requireElse, requireEOL, ifAlternate, requireEOL])
 end function
 optElseStatement = new GSINode
 optElseStatement.type = "optElseStatement"
@@ -879,7 +879,7 @@ end function
 elifStatement = new GSINode
 elifStatement.type = "elifStatement"
 elifStatement.expand_func_bak = function()
-    return self.series([requireElse, requireIf, evalExpression, requireThen, ifAlternate])
+    return self.series([requireElse, requireIf, evalExpression, requireThen, requireEOL, ifAlternate, requireEOL])
 end function
 anyElifStatement = new GSINode
 anyElifStatement.type = "anyElifStatement"
@@ -897,7 +897,7 @@ end function
 forStatement = new GSINode
 forStatement.type = "forStatement"
 forStatement.expand_func = function()
-    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, forCodeBlock, requireEnd, requireFor])
+    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, requireEOL, forCodeBlock, requireEOL, requireEnd, requireFor, requireEOL])
 end function
 // for statement end
 // while statement start
@@ -909,7 +909,7 @@ end function
 whileStatement = new GSINode
 whileStatement.type = "whileStatement"
 whileStatement.expand_func = function()
-    return self.series([requireWhile, evalExpression, whileCodeBlock, requireEnd, requireWhile])
+    return self.series([requireWhile, evalExpression, requireEOL, whileCodeBlock, requireEOL, requireEnd, requireWhile, requireEOL])
 end function
 // function expression start
 paramAtom = new GSINode
@@ -985,7 +985,7 @@ end function
 returnStatement = new GSINode
 returnStatement.type = "returnStatement"
 returnStatement.expand_func = function()
-    return self.series([requireReturn, optObjectExpression])
+    return self.series([requireReturn, optObjectExpression, requireEOL])
 end function
 // return statement end
 // call expression start
