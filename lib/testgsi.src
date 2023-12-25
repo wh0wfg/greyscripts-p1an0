@@ -95,16 +95,17 @@ lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
 a = function(b=1,e=2,f,g,h=3)
-    c = 1
+    print b
+    print e
+    print f
+    print g
+    print h
 end function
 
-a = function
-    c = 1
-end function
-
-a = function()
-    c = 1
-end function
+a 1,2,3
+a (1,2)
+a
+a()
 "
 
 tokens = lexer.tokenize(test)
@@ -350,7 +351,7 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement])
+    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, callExpression, objectExpression])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
@@ -955,4 +956,49 @@ funcExpression.expand_func = function()
     return self.series([requireFuncion, optFuncParams, funcCodeBlock, requireEnd, requireFuncion])
 end function
 // function expression end
+// return statement start
+
+// return statement end
+// call expression start
+callParamClause = new GSINode
+callParamClause.type = "callParamClause"
+callParamClause.ignore = true
+callParamClause.expand_func_bak = function
+    return self.series([requireComma, objectExpression])
+end function
+callParamClauses = new GSINode
+callParamClauses.type = "callParamClauses"
+callParamClauses.ignore = true
+callParamClauses.expand_func = function
+    return self.any(callParamClause)
+end function
+callParamParen = new GSINode
+callParamParen.type = "callParamParen"
+callParamParen.ignore = true
+callParamParen.expand_func = function
+    return self.series([objectExpression, callParamClauses])
+end function
+optCallParamParen = new GSINode
+optCallParamParen.type = "optCallParamParen"
+optCallParamParen.ignore = true
+optCallParamParen.expand_func = function
+    return self.parallel([epsilonNodeNoIgnore, callParamParen])
+end function
+callParamsWithParen = new GSINode
+callParamsWithParen.type = "callParamsWithParen"
+callParamsWithParen.ignore = true
+callParamsWithParen.expand_func = function()
+   return self.series([requireOpenParen, optCallParamParen, requireCloseParen])
+end function
+callParams = new GSINode
+callParams.type = "callParams"
+callParams.expand_func = function()
+   return self.parallel([optCallParamParen, callParamsWithParen])
+end function
+callExpression = new GSINode
+callExpression.type = "callExpression"
+callExpression.expand_func = function()
+    return self.series([requireIdentifier, callParams])
+end function
+// call expression end
 GSIparse(tokens)
