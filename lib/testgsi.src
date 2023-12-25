@@ -100,12 +100,10 @@ a = function(b=1,e=2,f,g,h=3)
     print f
     print g
     print h
+    return b+e+f
 end function
 
-a 1,2,3
-a (1,2)
-a
-a()
+([])
 "
 
 tokens = lexer.tokenize(test)
@@ -351,7 +349,7 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, objectExpression])
+    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, objectExpression])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
@@ -957,7 +955,11 @@ funcExpression.expand_func = function()
 end function
 // function expression end
 // return statement start
-
+returnStatement = new GSINode
+returnStatement.type = "returnStatement"
+returnStatement.expand_func = function()
+    return self.series([requireReturn, optObjectExpression])
+end function
 // return statement end
 // call expression start
 callParamClause = new GSINode
