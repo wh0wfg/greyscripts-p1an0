@@ -48,7 +48,7 @@ end function
 
 lexer = LexicalAnalyzer.init
 lexer.addRule("SPACE", "^[ \t]+", true)
-lexer.addRule("ENTER", "^[\r\n]", true)
+lexer.addRule("ENTER", "^[\r\n]")
 lexer.addRule("COMMENT", "^\/\/.*(?=\n|\r|$)", true)
 lexer.addRule("EQUALS", "^==")
 lexer.addRule("NOT_EQ", "^!=")
@@ -94,16 +94,7 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a = function(b=1,e=2,f,g,h=3)
-    print b
-    print e
-    print f
-    print g
-    print h
-    return b+e+f
-end function
-
-([])
+a.b.c.c.d
 "
 
 tokens = lexer.tokenize(test)
@@ -175,7 +166,7 @@ GSIparse = function(gsi_tokens)
         end for
         print tmp
         print globals.GSIidx_stack
-        // wait(1)
+        wait(1)
 
         while nodes.len > 0
             each_node = nodes.pull
@@ -360,13 +351,19 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, funcExpression, callExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, memberExpression, callExpression, evalExpression, funcExpression, newExpression])
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
 evalAtom.ignore = true
 evalAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, memberExpression, callExpression, pri1EvalExpression, pri2EvalExpression, newExpression])
+end function
+memberAtom = new GSINode
+memberAtom.type = "memberAtom"
+memberAtom.ignore = true
+memberAtom.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, callExpression, evalExpression, newExpression])
 end function
 // list expression start
 listClause = new GSINode
@@ -515,6 +512,36 @@ requireColon.type = "requireColon"
 requireColon.ignore = true
 requireColon.expand_func = function()
    return requireType("COLON", self.type, self.ignore)
+end function
+requireDot = new GSINode
+requireDot.type = "requireDot"
+requireDot.ignore = true
+requireDot.expand_func = function()
+   return requireType("DOT", self.type, self.ignore)
+end function
+requireAt = new GSINode
+requireAt.type = "requireAt"
+requireAt.ignore = true
+requireAt.expand_func = function()
+   return requireType("AT", self.type, self.ignore)
+end function
+requireEnter = new GSINode
+requireEnter.type = "requireEnter"
+requireEnter.ignore = true
+requireEnter.expand_func = function()
+   return requireType("ENTER", self.type, self.ignore)
+end function
+requireSemiColon = new GSINode
+requireSemiColon.type = "requireSemiColon"
+requireSemiColon.ignore = true
+requireSemiColon.expand_func = function()
+   return requireType("SEMI_COLON", self.type, self.ignore)
+end function
+requireEOL = new GSINode
+requireEOL.type = "requireEOL"
+requireEOL.ignore = true
+requireEOL.expand_func = function()
+   return self.parallel([requireEnter, requireSemiColon])
 end function
 requireNull = new GSINode
 requireNull.type = "requireNull"
@@ -682,7 +709,7 @@ pri2Operator = new GSINode
 pri2Operator.type = "pri2Operator"
 pri2Operator.ignore = true
 pri2Operator.expand_func = function()
-   return self.parallel([requireNot, requireAdd, requireMinus])
+   return self.parallel([requireNot, requireMinus])
 end function
 pri2EvalExpression = new GSINode
 pri2EvalExpression.type = "pri2EvalExpression"
@@ -1000,9 +1027,27 @@ end function
 callExpression = new GSINode
 callExpression.type = "callExpression"
 callExpression.expand_func = function()
-    return self.series([requireIdentifier, callParams])
+    return self.series([objectExpression, callParams])
 end function
 // call expression end
+// member expression start
+dotIdentifier = new GSINode
+dotIdentifier.type = "dotIdentifier"
+dotIdentifier.ignore = true
+dotIdentifier.expand_func_bak = function()
+    return self.series([requireDot, requireIdentifier])
+end function
+anyDotIdentifier = new GSINode
+anyDotIdentifier.type = "anyDotIdentifier"
+anyDotIdentifier.expand_func = function()
+    return self.any(dotIdentifier)
+end function
+memberExpression = new GSINode
+memberExpression.type = "memberExpression"
+memberExpression.expand_func = function()
+    return self.series([memberAtom, requireDot, anyDotIdentifier])
+end function
+// member expression end
 // new expression start
 newExpression = new GSINode
 newExpression.type = "newExpression"
