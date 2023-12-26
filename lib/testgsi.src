@@ -97,6 +97,16 @@ test = "
 for i in range(10)
     print (i)
 end for
+a = function
+    b = function
+        return 1
+    end function
+end function
+while 1+1>=2
+end while
+if current_ast == null or last_ast == null then
+    return false
+end if
 "
 
 tokens = lexer.tokenize(test)
