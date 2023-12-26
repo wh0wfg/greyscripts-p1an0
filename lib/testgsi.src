@@ -1000,7 +1000,7 @@ end function
 funcExpression = new GSINode
 funcExpression.type = "funcExpression"
 funcExpression.expand_func = function()
-    return self.series([requireFuncion, optFuncParams, funcCodeBlock, requireEnd, requireFuncion])
+    return self.series([requireFuncion, optFuncParams, requireEOL, funcCodeBlock, requireEnd, requireFuncion])
 end function
 // function expression end
 // return statement start
