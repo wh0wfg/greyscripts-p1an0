@@ -94,7 +94,7 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a = 1
+a = c[b][c]
 "
 
 tokens = lexer.tokenize(test)
@@ -166,7 +166,7 @@ GSIparse = function(gsi_tokens)
         end for
         print tmp
         print globals.GSIidx_stack
-        wait(1)
+        // wait(1)
 
         while nodes.len > 0
             each_node = nodes.pull
@@ -365,19 +365,25 @@ objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, addressOfExpression, listExpression, mapExpression, evalExpression, funcExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, addressOfExpression, listExpression, mapExpression, callExpression, evalExpression, funcExpression, newExpression])
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
 evalAtom.ignore = true
 evalAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression, newExpression, callExpression])
 end function
 memberAtom = new GSINode
 memberAtom.type = "memberAtom"
 memberAtom.ignore = true
 memberAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression])
+end function
+callAtom = new GSINode
+callAtom.type = "memberAtom"
+callAtom.ignore = true
+callAtom.expand_func = function()
+   return self.parallel([requireIdentifier, memberExpression])
 end function
 // list expression start
 listClause = new GSINode
@@ -1041,9 +1047,50 @@ end function
 callExpression = new GSINode
 callExpression.type = "callExpression"
 callExpression.expand_func = function()
-    return self.series([objectExpression, callParams])
+    return self.series([callAtom, callParams])
 end function
 // call expression end
+// member expression start
+dotMember = new GSINode
+dotMember.type = "dotMember"
+dotMember.ignore = true
+dotMember.expand_func = function()
+    return self.series([requireDot, requireIdentifier])
+end function
+bracketPair = new GSINode
+bracketPair.type = "bracketPair"
+bracketPair.expand_func = function()
+   return self.series([optObjectExpression, requireColon, optObjectExpression])
+end function
+indexBracketMember = new GSINode
+indexBracketMember.type = "indexBracketMember"
+indexBracketMember.ignore = true
+indexBracketMember.expand_func = function()
+    return self.parallel([objectExpression, bracketPair])
+end function
+bracketMember = new GSINode
+bracketMember.type = "bracketMember"
+bracketMember.ignore = true
+bracketMember.expand_func = function()
+    return self.series([requireOpenBracket, indexBracketMember, requireCloseBracket])
+end function
+dbMember = new GSINode
+dbMember.type = "dbMember"
+dbMember.ignore = true
+dbMember.expand_func_bak = function()
+    return self.parallel([dotMember, bracketMember])
+end function
+anyDbMember = new GSINode
+anyDbMember.type = "anyDbMember"
+anyDbMember.expand_func = function()
+    return self.any(dbMember)
+end function
+memberExpression = new GSINode
+memberExpression.type = "memberExpression"
+memberExpression.expand_func = function()
+    return self.series([memberAtom, anyDbMember])
+end function
+// member expression end
 // new expression start
 newExpression = new GSINode
 newExpression.type = "newExpression"
