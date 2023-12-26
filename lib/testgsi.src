@@ -94,7 +94,9 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a = c[:-1].a[d].c[0].p + 1
+for i in range(10)
+    print (i)
+end for
 "
 
 tokens = lexer.tokenize(test)
@@ -872,7 +874,7 @@ end function
 ifStatement = new GSINode
 ifStatement.type = "ifStatement"
 ifStatement.expand_func = function()
-    return self.series([requireIf, evalExpression, requireThen, requireEOL, ifConsequent, requireEOL, anyElifStatement, optElseStatement, requireEnd, requireIf, requireEOL])
+    return self.series([requireIf, evalExpression, requireThen, requireEOL, ifConsequent, anyElifStatement, optElseStatement, requireEnd, requireIf, requireEOL])
 end function
 ifConsequent = new GSINode
 ifConsequent.type = "ifConsequent"
@@ -888,7 +890,7 @@ elseStatement = new GSINode
 elseStatement.type = "elseStatement"
 elseStatement.ignore = true
 elseStatement.expand_func = function()
-    return self.series([requireElse, requireEOL, ifAlternate, requireEOL])
+    return self.series([requireElse, requireEOL, ifAlternate])
 end function
 optElseStatement = new GSINode
 optElseStatement.type = "optElseStatement"
@@ -899,7 +901,7 @@ end function
 elifStatement = new GSINode
 elifStatement.type = "elifStatement"
 elifStatement.expand_func_bak = function()
-    return self.series([requireElse, requireIf, evalExpression, requireThen, requireEOL, ifAlternate, requireEOL])
+    return self.series([requireElse, requireIf, evalExpression, requireThen, requireEOL, ifAlternate])
 end function
 anyElifStatement = new GSINode
 anyElifStatement.type = "anyElifStatement"
@@ -917,7 +919,7 @@ end function
 forStatement = new GSINode
 forStatement.type = "forStatement"
 forStatement.expand_func = function()
-    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, requireEOL, forCodeBlock, requireEOL, requireEnd, requireFor, requireEOL])
+    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, requireEOL, forCodeBlock, requireEnd, requireFor, requireEOL])
 end function
 // for statement end
 // while statement start
@@ -929,7 +931,7 @@ end function
 whileStatement = new GSINode
 whileStatement.type = "whileStatement"
 whileStatement.expand_func = function()
-    return self.series([requireWhile, evalExpression, requireEOL, whileCodeBlock, requireEOL, requireEnd, requireWhile, requireEOL])
+    return self.series([requireWhile, evalExpression, requireEOL, whileCodeBlock, requireEnd, requireWhile, requireEOL])
 end function
 // function expression start
 paramAtom = new GSINode
