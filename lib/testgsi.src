@@ -94,7 +94,7 @@ lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
 
 test = "
-a.b.c.c.d
+a = 1
 "
 
 tokens = lexer.tokenize(test)
@@ -340,30 +340,44 @@ codeBlock = new GSINode
 codeBlock.type = "codeBlock"
 codeBlock.ignore = true
 codeBlock.expand_func_bak = function()
-    return self.parallel([variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, objectExpression, epsilonNode])
+    return self.parallel([requireEOL, variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, expressionStatement])
 end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
 variableDeclaration.expand_func = function()
     return self.series([requireIdentifier, requireAssign, objectExpression, requireEOL])
 end function
+// address of expression start
+addressOfExpression = new GSINode
+addressOfExpression.type = "addressOfExpression"
+addressOfExpression.expand_func = function()
+    return self.series([requireAt, requireIdentifier])
+end function
+// address of expression end
+// expression statement start
+expressionStatement = new GSINode
+expressionStatement.type = "expressionStatement"
+expressionStatement.expand_func = function()
+   return self.series([objectExpression, requireEOL])
+end function
+// expression statement end
 objectExpression = new GSINode
 objectExpression.type = "objectExpression"
 objectExpression.ignore = true
 objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, memberExpression, callExpression, evalExpression, funcExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, addressOfExpression, listExpression, mapExpression, evalExpression, funcExpression, newExpression])
 end function
 evalAtom = new GSINode
 evalAtom.type = "evalAtom"
 evalAtom.ignore = true
 evalAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, memberExpression, callExpression, pri1EvalExpression, pri2EvalExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression, newExpression])
 end function
 memberAtom = new GSINode
 memberAtom.type = "memberAtom"
 memberAtom.ignore = true
 memberAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, callExpression, evalExpression, newExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, evalExpression, newExpression])
 end function
 // list expression start
 listClause = new GSINode
@@ -1030,24 +1044,6 @@ callExpression.expand_func = function()
     return self.series([objectExpression, callParams])
 end function
 // call expression end
-// member expression start
-dotIdentifier = new GSINode
-dotIdentifier.type = "dotIdentifier"
-dotIdentifier.ignore = true
-dotIdentifier.expand_func_bak = function()
-    return self.series([requireDot, requireIdentifier])
-end function
-anyDotIdentifier = new GSINode
-anyDotIdentifier.type = "anyDotIdentifier"
-anyDotIdentifier.expand_func = function()
-    return self.any(dotIdentifier)
-end function
-memberExpression = new GSINode
-memberExpression.type = "memberExpression"
-memberExpression.expand_func = function()
-    return self.series([memberAtom, requireDot, anyDotIdentifier])
-end function
-// member expression end
 // new expression start
 newExpression = new GSINode
 newExpression.type = "newExpression"
