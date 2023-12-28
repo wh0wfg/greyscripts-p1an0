@@ -122,6 +122,48 @@ UTILS.getPermission = function(item)
         return null
     end if
 end function
+UTILS.resolvePath = function(relative_path)
+    result_path = null
+    if relative_path == null or relative_path.len <= 0 then
+        result_path = globals.WORK_DIR
+    else if relative_path[0] == "/" then
+        result_path = relative_path
+    else if relative_path[0] == "~" and (relative_path.len <= 1 or relative_path[1] == "/") then
+        result_path = globals.HOME_DIR + relative_path[1:]
+    else if globals.WORK_DIR == "/" then
+        result_path = globals.WORK_DIR + relative_path
+    else
+        result_path = globals.WORK_DIR + "/" + relative_path
+    end if
+
+    path_split = result_path.split("/")[1:]
+    index = 0
+    while index < path_split.len
+        if path_split[index] == "." or path_split[index] == "" then
+            path_split.remove(index)
+            index = index - 1
+        else if path_split[index] == ".." then
+            if index - 1 >= 0 then
+                path_split.remove(index - 1)
+                path_split.remove(index - 1)
+                index = index - 2
+            else
+                path_split.remove(index)
+                index = index - 1
+            end if
+        end if
+        index = index + 1
+    end while
+
+    result_path = ""
+    for each_split in path_split
+        result_path = result_path + "/" + each_split
+    end for
+    if result_path.len == 0 then
+        result_path = "/"
+    end if
+    return result_path
+end function
 UTILS.cliPrint = function(message)
     print(globals.COLOR.COMMAND_OUTPUT+message+"</color>")
 end function
@@ -305,6 +347,7 @@ COMMANDS["help"].execute = function(args)
     end if
 end function
 COMMANDS.regCmd("ls")
+COMMANDS["ls"].parser.addValue("dir_path", "dir path", ".")
 COMMANDS["ls"].parser.addFlag("-l", "Show file details")
 COMMANDS["ls"].parser.addFlag("-a", "Show hiden file")
 COMMANDS["ls"].execute = function(args)
@@ -312,6 +355,42 @@ COMMANDS["ls"].execute = function(args)
     if typeof(args) == "string" then
         return args
     end if
+
+    dir_path = globals.UTILS.resolvePath(args["dir_path"])
+    dir = globals.UTILS.getFile(globals.SHELL, dir_path, true)
+    if typeof(dir) == "string" then
+        return dir
+    end if
+
+    sub_files = dir.get_folders + dir.get_files
+    output = ""
+    for each_sub_file in sub_files
+        file_name = each_sub_file.name
+        permission = each_sub_file.permissions
+        file_owner = each_sub_file.owner
+        file_size = each_sub_file.size
+        file_group = each_sub_file.group
+
+        if args["-a"] or not file_name[0] == "." then
+            if not file_name[0] == "."then
+                file_name = globals.COLOR.COMMAND_OUTPUT+each_sub_file.name+"</color>"
+            else
+                file_name = globals.COLOR.HIDEN_FILE+each_sub_file.name+"</color>"
+            end if
+            if is_folder(each_sub_file) then file_name = globals.COLOR.FILE+each_sub_file.name+"</color>"
+
+            if output.len > 0 then 
+                output = output + "\n"
+            end if
+            if args["-l"] then
+                output = output + globals.COLOR.COMMAND_OUTPUT+ permission + " " + file_owner + " " + file_group + " " + file_size + " 00:00 </color>" + file_name
+            else
+                output = output + file_name
+            end if
+        end if
+    end for
+    
+    globals.UTILS.cliPrint(format_columns(output))
 end function
 // commands end
 // main loop begin
