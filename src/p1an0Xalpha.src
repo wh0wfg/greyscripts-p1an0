@@ -456,6 +456,27 @@ COMMANDS.regCmd("whoami")
 COMMANDS["whoami"].execute = function(args)
     globals.UTILS.cliPrint(globals.USER_NAME)
 end function
+COMMANDS.regCmd("rm")
+COMMANDS["rm"].parser.addValue("file_path", "file path")
+COMMANDS["rm"].parser.addFlag("-r", "remove directory")
+COMMANDS["rm"].execute = function(args)
+    args = globals.COMMANDS["rm"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    file_path = globals.UTILS.resolvePath(args["file_path"])
+    file = globals.UTILS.getFile(globals.SHELL, file_path, args["-r"])
+    if typeof(file) == "string" then
+        return file
+    end if
+
+    if not target_file.has_permission("w") then 
+        globals.UTILS.cliPrint("Permission denied: " + file_path)
+        return
+    end if
+    target_file.delete
+end function
 // commands end
 // main loop begin
 getInput = function()
