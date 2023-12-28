@@ -392,6 +392,22 @@ COMMANDS["ls"].execute = function(args)
     
     globals.UTILS.cliPrint(format_columns(output))
 end function
+COMMANDS.regCmd("cd")
+COMMANDS["cd"].parser.addValue("dir_path", "dir path", ".")
+COMMANDS["cd"].execute = function(args)
+    args = globals.COMMANDS["cd"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    dir_path = globals.UTILS.resolvePath(args["dir_path"])
+    dir = globals.UTILS.getFile(globals.SHELL, dir_path, true)
+    if typeof(dir) == "string" then
+        return dir
+    end if
+
+    globals.WORK_DIR = dir.path
+end function
 // commands end
 // main loop begin
 getInput = function()
