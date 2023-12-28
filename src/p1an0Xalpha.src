@@ -1,0 +1,343 @@
+// global variables begin
+SHELL = get_shell
+WORK_DIR = current_path
+USER_NAME = active_user
+HOST_NAME = function
+    return globals.SHELL.host_computer.get_name
+end function
+HOME_DIR = function
+    if globals.USER_NAME == "root" then
+        return "/root"
+    else
+        return "/home/" + globals.USER_NAME
+    end if
+end function
+// global variables end
+// color begin
+COLOR = {}
+COLOR.FILE = "<color=#6F6FEE>"
+COLOR.HIDEN_FILE = "<color=#9479B3>"
+COLOR.ROOT_PREV = "<color=#D15858>"
+COLOR.USER_PREV = "<color=#6F6FEE>"
+COLOR.GUEST_PREV = "<color=#C6C8BC>"
+COLOR.SHELL_PATH = "<color=white>"
+COLOR.SHELL_BAR = "<color=#3590C5>"
+COLOR.SHELL_INPUT = "<color=#9CD3D9>"
+COLOR.SHELL_USER = function
+    perm = globals.UTILS.getPermission(globals.SHELL)
+    if perm == "root" then
+        return globals.COLOR.ROOT_PREV
+    else if perm == "user" then
+        return globals.COLOR.USER_PREV
+    else
+        return globals.COLOR.GUEST_PREV
+    end if
+end function
+COLOR.COMMAND_OUTPUT = "<color=white>"
+// color end
+// environment variable begin
+ENV_VAR = {}
+// environment variable end
+// utils begin
+UTILS = {}
+UTILS.getFile = function(item, file_path, is_folder_flag=false)
+    if typeof(item) == "shell" then
+        result_file = item.host_computer.File(file_path)
+        if not result_file then
+            return "No such file or directory"
+        else
+            return result_file
+        end if 
+    else if typeof(item) == "computer" then
+        result_file = item.File(file_path)
+        if not result_file then
+            return "No such file or directory"
+        else
+            return result_file
+        end if 
+    else if typeof(item) == "file" then
+        item_parent = item.parent
+        while item_parent
+            item = item_parent
+            item_parent = item.parent
+        end while
+        path_split = file_path.split("/")[1:]
+        for each_split in path_split[:-1]
+            for each_folder in item.get_folders
+                if each_folder.name == each_split then
+                    item = each_folder
+                    break
+                end if
+            end for
+        end for
+        if is_folder_flag then
+            for each_folder in item.get_folders
+                if each_folder.name == path_split[-1] then
+                    item = each_folder
+                    break
+                end if
+            end for
+        else
+            for each_file in item.get_files
+                if each_file.name == path_split[-1] then
+                    item = each_file
+                    break
+                end if
+            end for
+        end if
+        if not item then
+            return "No such file or directory"
+        else if not item.has_permission("r") then
+            return "Permission denied"
+        else if not is_folder(item) and is_folder_flag then
+            return "Not a directory" 
+        else if is_folder(target_file) and not is_folder_flag then
+            return "Is a directory"
+        else
+            return item
+        end if
+    else
+        return "Requrie shell, computer, or file"
+    end if
+end function
+UTILS.getPermission = function(item)
+    passwd_file = null
+    if typeof(item) == "shell" then
+        passwd_file = item.host_computer.File("/etc/passwd")
+    else if typeof(item) == "computer" then
+        passwd_file = item.File("/etc/passwd")
+    else if typeof(item) == "file" then
+        passwd_file = globals.UTILS.getFile(item, "/etc/passwd")
+    end if
+
+    if typeof(passwd_file) == "file" then
+        if passwd_file.has_permission("w") then
+            return "root"
+        else if not passwd_file.has_permission("r") then
+            return "guest"
+        else
+            return "user"
+        end if
+    else
+        return null
+    end if
+end function
+UTILS.cliPrint = function(message)
+    print(globals.COLOR.COMMAND_OUTPUT+message+"</color>")
+end function
+UTILS.cliInput = function(message, is_pass=false)
+    return user_input(globals.COLOR.COMMAND_OUTPUT+message, is_pass)
+end function
+// utils end
+// lexcial analyzer begin
+LexicalAnalyzer = {}
+LexicalAnalyzer.tokenize = function(expression)
+   result = [] // [{"type": type, "value": value, "loc": [line, colume]}, ...]
+   line = 0
+   colume = 0
+   while expression
+      for each_rule in self.rules
+         type = each_rule["type"]
+         ignore = each_rule["ignore"]
+         value = null
+
+         for each_regex in each_rule["regex"]
+            regex_result = expression.matches(each_regex)
+            for each in regex_result.indexes
+               value = regex_result[each]
+               break
+            end for
+            if value then break
+         end for
+
+         if value then
+            colume = colume + value.len
+            if type == "ENTER" then
+               line = line + 1
+               colume = 0
+            end if
+            expression = expression[value.len:]
+            if ignore then break
+            result.push({"type": type, "value": value, "loc": [line, colume]})
+            break
+         end if
+      end for
+   end while
+   return result
+end function
+LexicalAnalyzer.addRule = function(type, regex, ignore=false)
+    if typeof(regex) != "list" then
+        regex = [regex]
+    end if
+    self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
+end function
+LexicalAnalyzer.init = function
+   result = new LexicalAnalyzer
+   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
+   result.addRule("SPACE", "^[ \t]+", true)
+   result.addRule("ENTER", "^[\r\n]", true)
+   return result
+end function
+// lexical analyzer end
+// cli parser begin
+CLIPARSER = {}
+CLIPARSER.lexer = LexicalAnalyzer.init
+CLIPARSER.lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
+CLIPARSER.lexer.addRule("OTHER", "^[^\s]*")
+CLIPARSER.parse = function(input)
+    tokens = globals.CLIPARSER.lexer.tokenize(input)
+    result = []
+    for each_token in tokens
+        if each_token.type == "STRING" then
+            result.push(each_token["value"][1:-1])
+        else
+            result.push(each_token["value"])
+        end if
+    end for
+    return result
+end function
+// cli parser end
+// argument parser begin
+ArgParser = {"value": null, "flag": null, "opt_value": null}
+// arg is optional if defualt != null
+// parse arguments in add order
+ArgParser.addValue = function(id, desc, default=null) // eg: [local ip] [public ip]
+    if default != null then
+        self.opt_value.push([id, desc, default])
+    else
+        self.value.push([id, desc])
+    end if
+end function
+ArgParser.addFlag = function(id, desc) // eg: -t -txz
+    self.flag.push([id, desc])
+end function
+ArgParser.desc = function
+    result = ""
+    for each_value in self.value
+        result = result + "[" + each_value[1] + "] "
+    end for
+    for each_value in self.opt_value
+        result = result + "[opt: " + each_value[1] + ", default: " + each_value[2] + "] "
+    end for
+    for each_flag in self.flag
+        result = result + "[" + each_flag[0] + ": " + each_flag[1] + "] "
+    end for
+    return result
+end function
+ArgParser.parse = function(args)
+    index = 0
+    result = {}
+    for each_value in self.value
+        if index >= args.len then
+            return "Require argument: [" + each_value[1] + "]"
+        end if
+        if args[index][0] == "-" then
+            return "Require argument: [" + each_value[1] + "]. Get flag: " + args[index] + " instead"
+        end if
+        id = each_value[0]
+        result[id] = args[index]
+        index = index + 1
+    end for
+    for each_value in self.opt_value
+        id = each_value[0]
+        if index >= args.len or args[index][0] == "-" then
+            result[id] = each_value[2]
+            continue
+        end if
+        result[id] = args[index]
+        index = index + 1
+    end for
+    arg_flags = []
+    while index < args.len
+        if args[index][0] != "-" then
+            return "Unknown argument: " + args[index]
+        end if
+        for each_flag in args[index][1:]
+            arg_flags.push(each_flag)
+        end for
+        index = index + 1
+    end while
+    for each_flag in self.flag
+        id = each_flag[0]
+        if arg_flags.indexOf(id[1:]) != null then
+            result[id] = true
+        else
+            result[id] = false
+        end if
+    end for
+    return result
+end function
+ArgParser.init = function
+    result = new ArgParser
+    result.value = []
+    result.flag = []
+    result.opt_value = []
+    return result
+end function
+// argument parser end 
+// commmands begin
+COMMANDS = {}
+COMMANDS.regCmd = function(cmd, desc="")
+    globals.COMMANDS[cmd] = {}
+    globals.COMMANDS[cmd]["desc"] = desc
+    globals.COMMANDS[cmd]["parser"] = ArgParser.init
+end function
+COMMANDS.regCmd("help")
+COMMANDS["help"].parser.addValue("cmd", "command name", "ALL_COMMAND")
+COMMANDS["help"].execute = function(args)
+    args = globals.COMMANDS["help"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+    if args["cmd"] == "ALL_COMMAND" then
+        for each_cmd in globals.COMMANDS.indexes
+            if typeof(globals.COMMANDS[each_cmd]) == "map" then
+                globals.UTILS.cliPrint(each_cmd)
+            end if
+        end for
+        return
+    end if
+    if globals.COMMANDS.hasIndex(args["cmd"]) == null then
+        return "Command '" + args["cmd"] + "' not found"
+    else
+        globals.UTILS.cliPrint(globals.COMMANDS[args["cmd"]].desc)
+        globals.UTILS.cliPrint("Usage: " + args["cmd"] + " " + globals.COMMANDS[args["cmd"]]["parser"].desc)
+    end if
+end function
+COMMANDS.regCmd("ls")
+COMMANDS["ls"].parser.addFlag("-l", "Show file details")
+COMMANDS["ls"].parser.addFlag("-a", "Show hiden file")
+COMMANDS["ls"].execute = function(args)
+    args = globals.COMMANDS["ls"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+end function
+// commands end
+// main loop begin
+getInput = function()
+    suffix = "$"
+    if globals.USER_NAME == "root" then
+        suffix = "#"
+    end if
+    show_path = globals.WORK_DIR[:len(globals.HOME_DIR)].replace(globals.HOME_DIR, "~") + globals.WORK_DIR[len(globals.HOME_DIR):]
+    output = char(10)+globals.COLOR.SHELL_BAR+"<pos=05>———(</color><b>"+globals.COLOR.SHELL_USER+globals.USER_NAME+"@"+globals.HOST_NAME+"</color></b>"+globals.COLOR.SHELL_BAR+")—[</color><b>"+globals.COLOR.SHELL_PATH+show_path+"</b>"+globals.COLOR.SHELL_BAR+"]<voffset=-0.5em>"+"<pos=00>|<voffset=-1em><space=-0.6em>|<voffset=-1.5em><pos=05>——<b></color>"+globals.COLOR.SHELL_USER+suffix+"</color></b>"+globals.COLOR.SHELL_INPUT+" "
+    return user_input(output)
+end function
+executeCommand = function(command, arguments)
+    if not globals.COMMANDS.hasIndex(command) then
+        return "Command '"+command+"' not found"
+    end if
+    return globals.COMMANDS[command].execute(arguments)
+end function
+while true
+    input = getInput
+    if not input then continue
+
+    parsed_input = globals.CLIPARSER.parse(input)
+    execute_result = executeCommand(parsed_input[0], parsed_input[1:])
+    if typeof(execute_result) == "string" then
+        globals.UTILS.cliPrint(execute_result)
+    end if
+end while
+// main loop end
