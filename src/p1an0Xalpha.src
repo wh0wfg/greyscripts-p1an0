@@ -14,6 +14,7 @@ HOME_DIR = function
         return "/home/" + globals.USER_NAME
     end if
 end function
+USED_SHELL = []
 // global variables end
 // color begin
 COLOR = {}
@@ -39,6 +40,7 @@ COLOR.COMMAND_OUTPUT = "<color=white>"
 // color end
 // environment variable begin
 ENV_VAR = {}
+ENV_VAR.METAX_PATH = "/lib/metaxploit.so"
 // environment variable end
 // utils begin
 UTILS = {}
@@ -108,13 +110,13 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
                 end if
             end for
         end if
-        if not item then
+        if not item or item.path != file_path then
             return "No such file or directory"
         else if not item.has_permission("r") then
             return "Permission denied"
         else if not is_folder(item) and is_folder_flag == true then
             return "Not a directory" 
-        else if is_folder(target_file) and is_folder_flag == false then
+        else if is_folder(item) and is_folder_flag == false then
             return "Is a directory"
         else
             return item
@@ -143,6 +145,34 @@ UTILS.getPermission = function(item)
         end if
     else
         return null
+    end if
+end function
+UTILS.writeFile = function(item, file_path, content)
+    file = globals.UTILS.getFile(item, file_path)
+    if typeof(file) == "string" then
+        if file == "No such file or directory" then
+            file = "Failed to create file"
+            if typeof(item) == "shell" then
+                file = item.host_computer.touch(file_path)
+            else if typeof(item) == "computer" then
+                file = item.touch(file_path)
+            end if
+            if typeof(file) == "string" then
+                return file
+            else
+                result = file.set_content(content)
+                if result != true then
+                    return result
+                end if
+            end if
+        else
+            return file
+        end if
+    else
+        result = file.set_content(content)
+        if result != true then
+            return result
+        end if
     end if
 end function
 UTILS.getUser = function(item)
@@ -204,6 +234,16 @@ UTILS.resolvePath = function(relative_path)
         result_path = "/"
     end if
     return result_path
+end function
+UTILS.useShell = function(target_shell)
+    globals.USED_SHELL.push([globals.SHELL, globals.WORK_DIR])
+    globals.SHELL = target_shell
+    globals.WORK_DIR = globals.HOME_DIR
+end function
+UTILS.exitShell = function()
+    used_shell = globals.USED_SHELL.pop
+    globals.SHELL = used_shell[0]
+    globals.WORK_DIR = used_shell[1]
 end function
 UTILS.cliPrint = function(message)
     print(globals.COLOR.COMMAND_OUTPUT+message+"</color>")
@@ -318,7 +358,15 @@ ArgParser.parse = function(args)
             return "Require argument: [" + each_value[1] + "]. Get flag: " + args[index] + " instead"
         end if
         id = each_value[0]
-        result[id] = args[index]
+        if args[index][0] == "$" then
+            if globals.ENV_VAR.hasIndex(args[index][1:]) then
+                result[id] = globals.ENV_VAR[args[index][1:]]
+            else
+                result[id] = ""
+            end if
+        else
+            result[id] = args[index]
+        end if
         index = index + 1
     end for
     for each_value in self.opt_value
@@ -327,7 +375,15 @@ ArgParser.parse = function(args)
             result[id] = each_value[2]
             continue
         end if
-        result[id] = args[index]
+        if args[index][0] == "$" then
+            if globals.ENV_VAR.hasIndex(args[index][1:]) then
+                result[id] = globals.ENV_VAR[args[index][1:]]
+            else
+                result[id] = ""
+            end if
+        else
+            result[id] = args[index]
+        end if
         index = index + 1
     end for
     arg_flags = []
@@ -518,15 +574,168 @@ COMMANDS["chmod"].execute = function(args)
         return "Permission denied"
     end if
 end function
+COMMANDS.regCmd("su", "switch user")
+COMMANDS["su"].parser.addValue("user", "user name")
+COMMANDS["su"].execute = function(args)
+    args = globals.COMMANDS["su"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+    
+    if args["user"] ==  globals.USER_NAME then
+        return "You are already " + globals.USER_NAME
+    end if
+
+    passwd = globals.UTILS.cliInput("Password: ", true)
+    target_shell = get_shell(args["user"], passwd)
+    if not target_shell then 
+        return "Authentication failure"
+    end if
+    
+    globals.UTILS.useShell(target_shell)
+end function
+COMMANDS.regCmd("exit", "back to previous shell")
+COMMANDS["exit"].execute = function(args)
+    if globals.USED_SHELL.len < 1 then
+        confirm = globals.UTILS.cliInput("Are you sure you want to exit p1an0Xalpha?[yes/no]: ")
+        if confirm == "yes" then exit
+        return
+    end if
+    globals.UTILS.exitShell()
+end function
+COMMANDS.regCmd("env", "show all environment variables")
+COMMANDS["env"].execute = function(args)
+    for each_var in globals.ENV_VAR.indexes
+        globals.UTILS.cliPrint(each_var + "=" + globals.ENV_VAR[each_var])
+    end for
+end function
+COMMANDS.regCmd("export", "add environment variable")
+COMMANDS["export"].parser.addValue("var", "variable")
+COMMANDS["export"].parser.addValue("value", "value")
+COMMANDS["export"].execute = function(args)
+    args = globals.COMMANDS["export"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    globals.ENV_VAR[args["var"]] = args["value"]
+end function
+COMMANDS.regCmd("unset", "remove environment variable")
+COMMANDS["unset"].parser.addValue("var", "variable")
+COMMANDS["unset"].execute = function(args)
+    args = globals.COMMANDS["unset"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    if globals.ENV_VAR.hasIndex(args["var"]) then
+        globals.ENV_VAR.remove(args["var"])
+    end if
+end function
+COMMANDS.regCmd("echo")
+COMMANDS["echo"].parser.addValue("value", "value")
+COMMANDS["echo"].execute = function(args)
+    args = globals.COMMANDS["echo"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    globals.UTILS.cliPrint(args["value"])
+end function
 // system commands end
+// hack commands begin
+COMMANDS.regCmd("jump", "jump to host computer of current shell")
+COMMANDS["jump"].parser.addValue("jump_path", "jump path", "/home/guest")
+COMMANDS["jump"].execute = function(args)
+    args = globals.COMMANDS["jump"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+jump_src = "
+custom_object = get_custom_object
+metax = include_lib(params[0])
+custom_object.meta_libs = []
+lib_dir = host_computer.File(""/lib"")
+for each_lib in lib_dir.get_files
+    custom_object.meta_libs.push(metax.load(each_lib.path))
+end for
+
+router = get_router
+custom_object.net_sessions = {}
+for ip in router.devices_lan_ip
+    custom_object.net_sessions[ip] = {}
+    ports = router.device_ports(ip)
+    if ports isa list then
+        custom_object.net_sessions[ip][0] = ports
+    else
+        for port in ports
+            port_num = port.port_number
+            net_session = metax.net_use(ip, port_num)
+            if not net_session then
+                continue
+            end if
+            if port.get_lan_ip == ip then
+                custom_object.net_sessions[ip][port_num] = net_session
+            else
+                if custom_object.devices.hasIndex(port.get_lan_ip) then
+                    if not custom_object.devices[port.get_lan_ip].hasIndex(port_num) then
+                        custom_object.devices[port.get_lan_ip][port_num] = net_session
+                    end if
+                else
+                    custom_object.devices[port.get_lan_ip] = {}
+                    custom_object.devices[port.get_lan_ip][port_num] = net_session
+                end if
+            end if
+        end for
+    end if
+end for
+custom_object.net_sessions[router.local_ip][0] = metax.net_use(router.local_ip, 0)
+"   
+    jump_path = globals.UTILS.resolvePath(args["jump_path"])
+    result = globals.UTILS.writeFile(globals.SHELL, jump_path + "/jumpfile.src", jump_src)
+    if typeof(result) == "string" then
+        return result
+    end if
+
+    rnd_time = rnd + 1
+    wait(rnd_time)
+
+    result = globals.UTILS.getFile(globals.SHELL, jump_path + "/jumpfile.src")
+    if result.get_content != jump_src then
+        return "Invalid jumpfile.src"
+    end if
+    globals.SHELL.build(jump_path + "/jumpfile.src", jump_path)
+    globals.SHELL.launch(jump_path + "/jumpfile", jump_path)
+end function
+COMMANDS.regCmd("scan")
+COMMANDS["scan"].execute = function(args)
+    router = get_router
+    for ip in router.devices_lan_ip
+        print "ip: " + ip
+        ports = router.device_ports(ip)
+        if typeof(ports) != "list" then
+            print ports
+        else
+            for port in ports
+                if port.get_lan_ip == ip then
+                    print port.port_number
+                else
+                    print port.get_lan_ip + ":" + port.port_number
+                end if
+            end for
+        end if
+    end for
+end function
+// hack commands end
 // commands end
 // main loop begin
 getInput = function()
     suffix = "$"
+    show_path = globals.WORK_DIR[:len(globals.HOME_DIR)].replace(globals.HOME_DIR, "~") + globals.WORK_DIR[len(globals.HOME_DIR):]
     if globals.USER_NAME == "root" then
         suffix = "#"
+        show_path = globals.WORK_DIR
     end if
-    show_path = globals.WORK_DIR[:len(globals.HOME_DIR)].replace(globals.HOME_DIR, "~") + globals.WORK_DIR[len(globals.HOME_DIR):]
     output = char(10)+globals.COLOR.SHELL_BAR+"<pos=05>———(</color><b>"+globals.COLOR.SHELL_USER+globals.USER_NAME+"@"+globals.HOST_NAME+"</color></b>"+globals.COLOR.SHELL_BAR+")—[</color><b>"+globals.COLOR.SHELL_PATH+show_path+"</b>"+globals.COLOR.SHELL_BAR+"]<voffset=-0.5em>"+"<pos=00>|<voffset=-1em><space=-0.6em>|<voffset=-1.5em><pos=05>——<b></color>"+globals.COLOR.SHELL_USER+suffix+"</color></b>"+globals.COLOR.SHELL_INPUT+" "
     return user_input(output)
 end function
@@ -547,3 +756,11 @@ while true
     end if
 end while
 // main loop end
+Exploit = {}
+Exploit.init = function
+    
+end function
+Device = {"ports": [], "shell": [], "computer": [], "file": [], }
+Device.init = function
+    
+end function
