@@ -1,7 +1,9 @@
 // global variables begin
 SHELL = get_shell
 WORK_DIR = current_path
-USER_NAME = active_user
+USER_NAME = function
+    return globals.UTILS.getUser(globals.SHELL)
+end function
 HOST_NAME = function
     return globals.SHELL.host_computer.get_name
 end function
@@ -128,6 +130,24 @@ UTILS.getPermission = function(item)
         end if
     else
         return null
+    end if
+end function
+UTILS.getUser = function(item)
+    perm = globals.UTILS.getPermission(item)
+    if perm == "root" then
+        return "root"
+    else if perm == "guest" then
+        return "guest"
+    else
+        dir = globals.UTILS.getFile(item, "/home", true)
+        if typeof(dir) == "string" then
+            return null
+        end if
+        for each_folder in dir.get_folders
+            if each_folder.has_permission("w") then
+                return each_folder.name
+            end if
+        end for 
     end if
 end function
 UTILS.resolvePath = function(relative_path)
@@ -431,6 +451,10 @@ COMMANDS["cat"].execute = function(args)
     end if
 
     globals.UTILS.cliPrint(file.get_content)
+end function
+COMMANDS.regCmd("whoami")
+COMMANDS["whoami"].execute = function(args)
+    globals.UTILS.cliPrint(globals.USER_NAME)
 end function
 // commands end
 // main loop begin
