@@ -346,6 +346,7 @@ ArgParser.init = function
 end function
 // argument parser end 
 // commmands begin
+// system commands begin
 COMMANDS = {}
 COMMANDS.regCmd = function(cmd, desc="")
     globals.COMMANDS[cmd] = {}
@@ -471,12 +472,17 @@ COMMANDS["rm"].execute = function(args)
         return file
     end if
 
-    if not target_file.has_permission("w") then 
-        globals.UTILS.cliPrint("Permission denied: " + file_path)
+    if not file.has_permission("w") then 
+        globals.UTILS.cliPrint("Permission denied: " + file.path)
         return
     end if
-    target_file.delete
+    file.delete
 end function
+COMMANDS.regCmd("clear", "clear terminal output")
+COMMANDS["clear"].execute = function(args)
+    clear_screen
+end function
+// system commands end
 // commands end
 // main loop begin
 getInput = function()
