@@ -47,9 +47,9 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
         result_file = item.host_computer.File(file_path)
         if not result_file then
             return "No such file or directory"
-        else if not is_folder(result_file) and is_folder_flag then
+        else if not is_folder(result_file) and is_folder_flag == true then
             return "Not a directory" 
-        else if is_folder(result_file) and not is_folder_flag then
+        else if is_folder(result_file) and is_folder_flag == false then
             return "Is a directory"
         else
             return result_file
@@ -58,9 +58,9 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
         result_file = item.File(file_path)
         if not result_file then
             return "No such file or directory"
-        else if not is_folder(result_file) and is_folder_flag then
+        else if not is_folder(result_file) and is_folder_flag == true then
             return "Not a directory" 
-        else if is_folder(result_file) and not is_folder_flag then
+        else if is_folder(result_file) and is_folder_flag == false then
             return "Is a directory"
         else
             return result_file
@@ -80,14 +80,27 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
                 end if
             end for
         end for
-        if is_folder_flag then
+        if is_folder_flag == true then
             for each_folder in item.get_folders
                 if each_folder.name == path_split[-1] then
                     item = each_folder
                     break
                 end if
             end for
+        else if is_folder_flag == false then
+            for each_file in item.get_files
+                if each_file.name == path_split[-1] then
+                    item = each_file
+                    break
+                end if
+            end for
         else
+            for each_folder in item.get_folders
+                if each_folder.name == path_split[-1] then
+                    item = each_folder
+                    break
+                end if
+            end for
             for each_file in item.get_files
                 if each_file.name == path_split[-1] then
                     item = each_file
@@ -99,9 +112,9 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
             return "No such file or directory"
         else if not item.has_permission("r") then
             return "Permission denied"
-        else if not is_folder(item) and is_folder_flag then
+        else if not is_folder(item) and is_folder_flag == true then
             return "Not a directory" 
-        else if is_folder(target_file) and not is_folder_flag then
+        else if is_folder(target_file) and is_folder_flag == false then
             return "Is a directory"
         else
             return item
@@ -481,6 +494,29 @@ end function
 COMMANDS.regCmd("clear", "clear terminal output")
 COMMANDS["clear"].execute = function(args)
     clear_screen
+end function
+COMMANDS.regCmd("chmod")
+COMMANDS["chmod"].parser.addValue("mode", "u,g,o+wrx")
+COMMANDS["chmod"].parser.addValue("file_path", "file path")
+COMMANDS["chmod"].parser.addFlag("-r", "is recursive")
+COMMANDS["chmod"].execute = function(args)
+    args = globals.COMMANDS["chmod"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    file_path = globals.UTILS.resolvePath(args["file_path"])
+    file = globals.UTILS.getFile(globals.SHELL, file_path, null)
+    if typeof(file) == "string" then
+        return file
+    end if
+
+    result = file.chmod(args["mode"], args["-r"])
+    if typeof(result) == "string" then
+        globals.UTILS.cliPrint(result)
+    else
+        return "Permission denied"
+    end if
 end function
 // system commands end
 // commands end
