@@ -45,6 +45,10 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
         result_file = item.host_computer.File(file_path)
         if not result_file then
             return "No such file or directory"
+        else if not is_folder(result_file) and is_folder_flag then
+            return "Not a directory" 
+        else if is_folder(result_file) and not is_folder_flag then
+            return "Is a directory"
         else
             return result_file
         end if 
@@ -52,6 +56,10 @@ UTILS.getFile = function(item, file_path, is_folder_flag=false)
         result_file = item.File(file_path)
         if not result_file then
             return "No such file or directory"
+        else if not is_folder(result_file) and is_folder_flag then
+            return "Not a directory" 
+        else if is_folder(result_file) and not is_folder_flag then
+            return "Is a directory"
         else
             return result_file
         end if 
@@ -407,6 +415,22 @@ COMMANDS["cd"].execute = function(args)
     end if
 
     globals.WORK_DIR = dir.path
+end function
+COMMANDS.regCmd("cat")
+COMMANDS["cat"].parser.addValue("file_path", "file path")
+COMMANDS["cat"].execute = function(args)
+    args = globals.COMMANDS["cat"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    file_path = globals.UTILS.resolvePath(args["file_path"])
+    file = globals.UTILS.getFile(globals.SHELL, file_path)
+    if typeof(file) == "string" then
+        return file
+    end if
+
+    globals.UTILS.cliPrint(file.get_content)
 end function
 // commands end
 // main loop begin
