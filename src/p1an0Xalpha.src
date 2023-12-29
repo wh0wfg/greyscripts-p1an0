@@ -1,3 +1,6 @@
+// environment variable begin
+ENV_VAR = {}
+// environment variable end
 // global variables begin
 SHELL = get_shell
 WORK_DIR = current_path
@@ -15,7 +18,125 @@ HOME_DIR = function
     end if
 end function
 USED_SHELL = []
+METAX_PATH = "/lib/metaxploit.so"
+METAX_LIB = include_lib(METAX_PATH)
+if not METAX_LIB then
+    METAX_PATH = current_path + "/metaxploit.so"
+    METAX_LIB = include_lib(METAX_PATH)
+end if
 // global variables end
+// cache begin
+SCAN_CACHE = {}
+// SCAN_CACHE = {
+//     public_ip: {
+//         local_ip: {
+//             "port": {port_num: net_session, ...},
+//             "lib": [metaLib, ...],
+//             "shell" : [shell, ...],
+//             "computer": [commputer, ...],
+//             "file": [file, ...],
+//             "user": {username: passwd, ...},
+//             "mail": {account: passwd, ...},
+//             "bank": {account: passwd, ...}
+//         },
+//         ...
+//     },
+//     ...
+// }
+SCAN_CACHE.hasMachine = function(pub_ip, loc_ip)
+    return globals.SCAN_CACHE.hasIndex(pub_ip) and globals.SCAN_CACHE[pub_ip].hasIndex(loc_ip)
+end function
+SCAN_CACHE.syncMachine = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasIndex(pub_ip) then
+        globals.SCAN_CACHE[pub_ip] = {}
+    end if
+    globals.SCAN_CACHE[pub_ip][loc_ip] = {"port": {}, "lib": [], "shell": [], "computer": [], "file": [], "user": {}, "mail": {}, "bank": {}}
+end function
+SCAN_CACHE.syncSession = function(pub_ip, loc_ip, port_num, net_session)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    globals.SCAN_CACHE[pub_ip][loc_ip]["port"][port_num] = net_session
+end function
+SCAN_CACHE.syncLib = function(pub_ip, loc_ip, meta_lib)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    globals.SCAN_CACHE[pub_ip][loc_ip]["lib"].push(meta_lib)
+end function
+SCAN_CACHE.syncItem = function(pub_ip, loc_ip, item)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    if typeof(item) == "shell" then
+        globals.SCAN_CACHE[pub_ip][loc_ip]["shell"].push(item)
+    else if typeof(item) == "computer" then
+        globals.SCAN_CACHE[pub_ip][loc_ip]["computer"].push(item)
+    else if typeof(item) == "file" then
+        globals.SCAN_CACHE[pub_ip][loc_ip]["file"].push(item)
+    end if
+end function
+SCAN_CACHE.getSession = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    return globals.SCAN_CACHE[pub_ip][loc_ip]["port"].values
+end function
+SCAN_CACHE.getMetaLib = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    return globals.SCAN_CACHE[pub_ip][loc_ip]["lib"]
+end function
+SCAN_CACHE.getShell = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    return globals.SCAN_CACHE[pub_ip][loc_ip]["shell"]
+end function
+SCAN_CACHE.getComputer = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    return globals.SCAN_CACHE[pub_ip][loc_ip]["computer"]
+end function
+SCAN_CACHE.getFile = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    return globals.SCAN_CACHE[pub_ip][loc_ip]["file"]
+end function
+METAX_CACHE = {}
+// METAX_CACHE = {
+//     name: {
+//         version: {
+//             address: zone,
+//             ...
+//         },
+//         ...
+//     },
+//     ...
+// }
+METAX_CACHE.hasLib = function(libName, libVersion)
+    return globals.METAX_CACHE.hasIndex(libName) and globals.METAX_CACHE[libName].hasIndex(libVersion)
+end function
+METAX_CACHE.syncVulner = function(libName, libVersion, address, zone)
+    if not globals.METAX_CACHE.hasIndex(libName) then
+        globals.METAX_CACHE[libName] = {}
+    end if
+    if not globals.METAX_CACHE[libName].hasIndex(libVersion) then
+        globals.METAX_CACHE[libName][libVersion] = {}
+    end if
+    globals.METAX_CACHE[libName][libVersion][address] = zone
+end function
+METAX_CACHE.getVulner = function(libName, libVersion)
+    if not globals.METAX_CACHE.hasLib(libName, libVersion) then
+        return {}
+    else
+        return globals.METAX_CACHE[libName][libVersion]
+    end if
+end function
+// cache end
 // color begin
 COLOR = {}
 COLOR.FILE = "<color=#6F6FEE>"
@@ -38,10 +159,6 @@ COLOR.SHELL_USER = function
 end function
 COLOR.COMMAND_OUTPUT = "<color=white>"
 // color end
-// environment variable begin
-ENV_VAR = {}
-ENV_VAR.METAX_PATH = "/lib/metaxploit.so"
-// environment variable end
 // utils begin
 UTILS = {}
 UTILS.getFile = function(item, file_path, is_folder_flag=false)
@@ -147,19 +264,23 @@ UTILS.getPermission = function(item)
         return null
     end if
 end function
-UTILS.writeFile = function(item, file_path, content)
-    file = globals.UTILS.getFile(item, file_path)
+UTILS.writeFile = function(item, file_path, file_name, content)
+    file = globals.UTILS.getFile(item, file_path + "/" + file_name)
     if typeof(file) == "string" then
         if file == "No such file or directory" then
             file = "Failed to create file"
             if typeof(item) == "shell" then
-                file = item.host_computer.touch(file_path)
+                file = item.host_computer.touch(file_path, file_name)
             else if typeof(item) == "computer" then
-                file = item.touch(file_path)
+                file = item.touch(file_path, file_name)
             end if
             if typeof(file) == "string" then
                 return file
             else
+                file = globals.UTILS.getFile(item, file_path + "/" + file_name)
+                if typeof(file) == "string" then
+                    return file
+                end if
                 result = file.set_content(content)
                 if result != true then
                     return result
@@ -244,6 +365,9 @@ UTILS.exitShell = function()
     used_shell = globals.USED_SHELL.pop
     globals.SHELL = used_shell[0]
     globals.WORK_DIR = used_shell[1]
+end function
+UTILS.isHost = function()
+    return globals.USED_SHELL.len == 0
 end function
 UTILS.cliPrint = function(message)
     print(globals.COLOR.COMMAND_OUTPUT+message+"</color>")
@@ -642,90 +766,269 @@ COMMANDS["echo"].execute = function(args)
 
     globals.UTILS.cliPrint(args["value"])
 end function
+COMMANDS.regCmd("ifconfig")
+COMMANDS["ifconfig"].execute = function(args)
+    computer = globals.SHELL.host_computer
+    devices = computer.network_devices
+    devices_split = devices.split(char(10))[:-1]
+    for item in devices_split
+        item_split = item.split(" ")
+        flag = ""
+        if item_split[2] then
+            flag = "MONITOR"
+        end if
+        globals.UTILS.cliPrint(item_split[0] + ": flags=<" + flag + ">")
+        globals.UTILS.cliPrint("  inet " + computer.local_ip + "  gateway" + computer.network_gateway)
+        globals.UTILS.cliPrint("  inet " + computer.public_ip)
+        globals.UTILS.cliPrint("  chipset " + item_split[1])
+    end for
+    
+end function
 // system commands end
 // hack commands begin
 COMMANDS.regCmd("jump", "jump to host computer of current shell")
+COMMANDS["jump"].parser.addValue("ip", "router ip", "")
 COMMANDS["jump"].parser.addValue("jump_path", "jump path", "/home/guest")
 COMMANDS["jump"].execute = function(args)
     args = globals.COMMANDS["jump"]["parser"].parse(args)
     if typeof(args) == "string" then
         return args
     end if
-jump_src = "
-custom_object = get_custom_object
-metax = include_lib(params[0])
-custom_object.meta_libs = []
-lib_dir = host_computer.File(""/lib"")
-for each_lib in lib_dir.get_files
-    custom_object.meta_libs.push(metax.load(each_lib.path))
-end for
+    file_name = floor(rnd * 100 + 1)
+    jump_src = "
+    custom_object = get_custom_object
+    metax = include_lib(params[0])
+    custom_object.shell = get_shell
+    custom_object.meta_libs = []
+    lib_dir = get_shell.host_computer.File(""/lib"")
+    for each_lib in lib_dir.get_files
+        custom_object.meta_libs.push(metax.load(each_lib.path))
+    end for
 
-router = get_router
-custom_object.net_sessions = {}
-for ip in router.devices_lan_ip
-    custom_object.net_sessions[ip] = {}
-    ports = router.device_ports(ip)
-    if ports isa list then
-        custom_object.net_sessions[ip][0] = ports
-    else
-        for port in ports
-            port_num = port.port_number
-            net_session = metax.net_use(ip, port_num)
-            if not net_session then
-                continue
-            end if
-            if port.get_lan_ip == ip then
-                custom_object.net_sessions[ip][port_num] = net_session
-            else
-                if custom_object.devices.hasIndex(port.get_lan_ip) then
-                    if not custom_object.devices[port.get_lan_ip].hasIndex(port_num) then
-                        custom_object.devices[port.get_lan_ip][port_num] = net_session
-                    end if
-                else
-                    custom_object.devices[port.get_lan_ip] = {}
-                    custom_object.devices[port.get_lan_ip][port_num] = net_session
-                end if
-            end if
-        end for
+    router = get_router()
+    if params[1].len > 0 then
+        router = get_router(params[1])
     end if
-end for
-custom_object.net_sessions[router.local_ip][0] = metax.net_use(router.local_ip, 0)
-"   
-    jump_path = globals.UTILS.resolvePath(args["jump_path"])
-    result = globals.UTILS.writeFile(globals.SHELL, jump_path + "/jumpfile.src", jump_src)
-    if typeof(result) == "string" then
-        return result
+    if router == null then
+        custom_object.router = null
+        exit
     end if
-
-    rnd_time = rnd + 1
-    wait(rnd_time)
-
-    result = globals.UTILS.getFile(globals.SHELL, jump_path + "/jumpfile.src")
-    if result.get_content != jump_src then
-        return "Invalid jumpfile.src"
-    end if
-    globals.SHELL.build(jump_path + "/jumpfile.src", jump_path)
-    globals.SHELL.launch(jump_path + "/jumpfile", jump_path)
-end function
-COMMANDS.regCmd("scan")
-COMMANDS["scan"].execute = function(args)
-    router = get_router
+    custom_object.router = router
+    custom_object.net_sessions = {}
     for ip in router.devices_lan_ip
-        print "ip: " + ip
+        custom_object.net_sessions[ip] = {}
         ports = router.device_ports(ip)
-        if typeof(ports) != "list" then
-            print ports
-        else
+        if typeof(ports) == ""list"" then
             for port in ports
+                port_num = port.port_number
+                net_session = metax.net_use(ip, port_num)
+                if not net_session then
+                    continue
+                end if
                 if port.get_lan_ip == ip then
-                    print port.port_number
+                    custom_object.net_sessions[ip][port_num] = net_session
                 else
-                    print port.get_lan_ip + ":" + port.port_number
+                    if not custom_object.net_sessions.hasIndex(port.get_lan_ip) then
+                        custom_object.net_sessions[port.get_lan_ip] = {}
+                    end if
+                    custom_object.net_sessions[port.get_lan_ip][port_num] = net_session
                 end if
             end for
         end if
     end for
+    custom_object.net_sessions[router.local_ip][0] = metax.net_use(router.local_ip, 0)
+    " 
+    jump_path = globals.UTILS.resolvePath(args["jump_path"])
+    result = globals.UTILS.writeFile(globals.SHELL, jump_path, file_name + ".src", jump_src)
+    if typeof(result) == "string" then
+        return result
+    end if
+
+    scp(get_shell, globals.METAX_PATH, jump_path, globals.SHELL)
+    rnd_time = rnd
+    wait(rnd_time)
+    src_result = globals.UTILS.getFile(globals.SHELL, jump_path + "/" + file_name + ".src")
+    if typeof(src_result) == "string" or src_result.get_content != jump_src then
+        return "Invalid jumpfile"
+    end if
+    result = globals.SHELL.build(jump_path + "/" + file_name + ".src", jump_path)
+    if result.len > 0 then
+        return result
+    end if
+    result = globals.SHELL.launch(jump_path + "/" + file_name, globals.METAX_PATH + " " + args["ip"])
+    if result != true then
+        return "Failed to jump"
+    end if
+    bin_result = globals.UTILS.getFile(globals.SHELL, jump_path + "/" + file_name)
+    if typeof(bin_result) == "string" then
+        return bin_result
+    end if
+    src_del = src_result.delete
+    if src_del.len > 0 then
+        return src_del
+    end if
+    bin_del = bin_result.delete
+    if bin_del.len > 0 then
+        return bin_del
+    end if
 end function
+COMMANDS.regCmd("scan", "scan target router and cache result")
+COMMANDS["scan"].parser.addValue("ip", "router ip", "")
+COMMANDS["scan"].execute = function(args)
+    args = globals.COMMANDS["scan"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+    if args["ip"].len > 0 and not is_valid_ip(args["ip"]) then
+        return "Invalid ip"
+    end if
+
+    target_ip = null
+    if globals.UTILS.isHost then
+        result = {}
+        router = get_router()
+        if args["ip"].len > 0 then
+            router = get_router(args["ip"])
+        end if
+        if not router then
+            return "Failed to connect to router"
+        end if
+        target_ip = router.public_ip
+        globals.UTILS.cliPrint("router:")
+        globals.UTILS.cliPrint("  public ip: " + router.public_ip)
+        globals.UTILS.cliPrint("  local  ip: " + router.local_ip)
+        for ip in router.devices_lan_ip
+            globals.SCAN_CACHE.syncMachine(router.public_ip, ip)
+            ports = router.device_ports(ip)
+            if typeof(ports) == "list" then
+                for port in ports
+                    port_num = port.port_number
+                    net_session = globals.METAX_LIB.net_use(ip, port_num)
+                    if not net_session then
+                        continue
+                    end if
+                    if port.get_lan_ip == ip then
+                        globals.SCAN_CACHE.syncSession(router.public_ip, ip, port_num, net_session)
+                    else
+                        globals.SCAN_CACHE.syncSession(router.public_ip, port.get_lan_ip, port_num, net_session)
+                    end if
+                end for
+            end if
+        end for
+        globals.SCAN_CACHE[router.public_ip][router.local_ip]["port"][0] = globals.METAX_LIB.net_use(router.local_ip, 0)
+    else
+        result = globals.COMMANDS.jump.execute([args["ip"]])
+        if typeof(result) then
+            return result
+        end if
+        if get_custom_object.router == null then
+            return "Failed to connect to router"
+        end if
+        pub_ip = get_custom_object.router.public_ip
+        loc_ip = get_custom_object.router.local_ip
+        target_ip = pub_ip
+        globals.UTILS.cliPrint("router:")
+        globals.UTILS.cliPrint("  public ip: " + pub_ip)
+        globals.UTILS.cliPrint("  local  ip: " + loc_ip)
+        for ip in get_custom_object.net_sessions.indexes
+            globals.SCAN_CACHE.syncMachine(pub_ip, ip)
+            for port_num in get_custom_object.net_sessions[ip].indexes
+                net_session = get_custom_object.net_sessions[ip][port_num]
+                globals.SCAN_CACHE.syncSession(pub_ip, ip, port_num, net_session)
+            end for
+        end for
+        for meta_lib in get_custom_object.meta_libs
+            globals.SCAN_CACHE.syncLib(pub_ip, get_custom_object.shell.host_computer.local_ip, meta_lib)
+        end for
+    end if
+    globals.UTILS.cliPrint("devices:")
+    for ip in globals.SCAN_CACHE[target_ip].indexes
+        globals.UTILS.cliPrint("  " + ip + ": ")
+        for port in globals.SCAN_CACHE[target_ip][ip]["port"]
+            globals.UTILS.cliPrint("    " + port["key"] + " " + port["value"].dump_lib.lib_name + " " + port["value"].dump_lib.version)
+        end for
+    end for
+end function
+COMMANDS.regCmd("hack", "exploit net_session or meta_lib")
+COMMANDS["hack"].parser.addValue("local_ip", "local ip")
+COMMANDS["hack"].parser.addValue("public_ip", "public ip", "")
+COMMANDS["hack"].execute = function(args)
+    args = globals.COMMANDS["hack"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+    
+    pub_ip = args["public_ip"]
+    if pub_ip.len == 0 then
+        pub_ip = globals.SHELL.host_computer.public_ip
+    end if
+    loc_ip = args["local_ip"]
+    if not is_valid_ip(pub_ip) or is_lan_ip(pub_ip) then
+        return "Invalid public ip"
+    end if
+    if not is_lan_ip(loc_ip) then
+        return "Invalid local ip"
+    end if
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        return "Scan cache not found"
+    end if
+
+    meta_libs = globals.SCAN_CACHE.getMetaLib(pub_ip, loc_ip) + globals.SCAN_CACHE.getSession(pub_ip, loc_ip)
+    if meta_libs.len == 0 then
+        return "No open port or local lib"
+    end if
+    for lib in meta_libs
+        if typeof(lib) == "NetSession" then
+            lib = lib.dump_lib
+        end if
+        libName = lib.lib_name
+        libVersion = lib.version
+        globals.UTILS.cliPrint(libName + " " + libVersion)
+
+        if not globals.METAX_CACHE.hasLib(libName, libVersion) then
+            for address in globals.METAX_LIB.scan(lib)
+                info = globals.METAX_LIB.scan_address(lib, address).split("Unsafe check: ").replace(char(10), "")
+                for info_line in info
+                    if info_line == info[0] then continue
+                    zone = info_line[info_line.indexOf("<b>")+3:info_line.indexOf("</b>")]
+                    globals.METAX_CACHE.syncVulner(libName, libVersion, address, zone)
+                end for
+            end for
+        end if
+
+        for each_vulner in globals.METAX_CACHE.getVulner(libName, libVersion)
+            address = each_vulner["key"]
+            zone = each_vulner["value"]
+            flow = lib.overflow(address, zone)
+            if typeof(flow) != "shell" and typeof(flow) != "computer" and typeof(flow) != "file" then
+                flow = lib.overflow(address, zone, loc_ip)
+            end if
+            print typeof(flow)
+            globals.SCAN_CACHE.syncItem(pub_ip, loc_ip, flow)
+        end for
+    end for
+
+    globals.UTILS.cliPrint("shell: ")
+    shells = globals.SCAN_CACHE.getShell(pub_ip, loc_ip)
+    for shell in shells
+        user = globals.UTILS.getUser(shell)
+        globals.UTILS.cliPrint("  " + user)
+    end for
+    globals.UTILS.cliPrint("computer: ")
+    computers = globals.SCAN_CACHE.getComputer(pub_ip, loc_ip)
+    for computer in computers
+        user = globals.UTILS.getUser(computer)
+        globals.UTILS.cliPrint("  " + user)
+    end for
+    globals.UTILS.cliPrint("file: ")
+    files = globals.SCAN_CACHE.getFile(pub_ip, loc_ip)
+    for file in shells
+        user = globals.UTILS.getUser(file)
+        globals.UTILS.cliPrint("  " + user)
+    end for
+    
+end function
+COMMANDS.regCmd("shell", "display cached shell")
 // hack commands end
 // commands end
 // main loop begin
