@@ -1,5 +1,6 @@
 // environment variable begin
 ENV_VAR = {}
+ENV_VAR.jump_path = "/home/guest"
 // environment variable end
 // global variables begin
 SHELL = get_shell
@@ -23,6 +24,10 @@ METAX_LIB = include_lib(METAX_PATH)
 if not METAX_LIB then
     METAX_PATH = current_path + "/metaxploit.so"
     METAX_LIB = include_lib(METAX_PATH)
+end if
+CRYPTO_LIB = include_lib("/lib/crypto.so")
+if not CRYPTO_LIB then
+    CRYPTO_LIB = include_lib(current_path + "/crypto.so")
 end if
 // global variables end
 // cache begin
@@ -75,6 +80,46 @@ SCAN_CACHE.syncItem = function(pub_ip, loc_ip, item)
     else if typeof(item) == "file" then
         globals.SCAN_CACHE[pub_ip][loc_ip]["file"].push(item)
     end if
+end function
+SCAN_CACHE.syncUser = function(pub_ip, loc_ip, username, passwd)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    globals.SCAN_CACHE[pub_ip][loc_ip]["user"][username] = passwd
+end function
+SCAN_CACHE.getUser = function(pub_ip, loc_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    return globals.SCAN_CACHE[pub_ip][loc_ip]["user"]
+end function
+SCAN_CACHE.getRootPasswd = function(pub_ip, loc_ip=null)
+    if not globals.SCAN_CACHE.hasIndex(pub_ip) then
+        return null
+    end if
+    if loc_ip and globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        return null
+    end if
+
+    loc_ips = globals.SCAN_CACHE[pub_ip].indexes
+    if loc_ip then
+        loc_ips = [loc_ip]
+    end if
+    for ip in loc_ips
+        users = globals.SCAN_CACHE[pub_ip][ip]["user"]
+        for user in users
+            if user["key"] == "root" then
+                result = globals.CRYPTO_LIB.decipher(user["value"])
+                if result then
+                    globals.SCAN_CACHE.syncUser(pub_ip, ip, user["key"], result)
+                    return result
+                else
+                    return user["value"]
+                end if
+            end if
+        end for
+    end for
+    return null
 end function
 SCAN_CACHE.getSession = function(pub_ip, loc_ip)
     if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
@@ -784,11 +829,28 @@ COMMANDS["ifconfig"].execute = function(args)
     end for
     
 end function
+COMMANDS.regCmd("decipher")
+COMMANDS["decipher"].parser.addValue("md5", "md5 hash")
+COMMANDS["decipher"].execute = function(args)
+    args = globals.COMMANDS["decipher"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    resutl = globals.CRYPTO_LIB.decipher(args["md5"])
+    if not resutl then
+        return "Invalid md5 hash"
+    else
+        globals.UTILS.cliPrint(resutl)
+    end if
+end function
 // system commands end
 // hack commands begin
 COMMANDS.regCmd("jump", "jump to host computer of current shell")
-COMMANDS["jump"].parser.addValue("ip", "router ip", "")
-COMMANDS["jump"].parser.addValue("jump_path", "jump path", "/home/guest")
+COMMANDS["jump"].parser.addValue("ip", "router ip")
+COMMANDS["jump"].parser.addValue("username", "username")
+COMMANDS["jump"].parser.addValue("passwd", "passwd")
+COMMANDS["jump"].parser.addValue("jump_path", "jump path")
 COMMANDS["jump"].execute = function(args)
     args = globals.COMMANDS["jump"]["parser"].parse(args)
     if typeof(args) == "string" then
@@ -797,8 +859,11 @@ COMMANDS["jump"].execute = function(args)
     file_name = floor(rnd * 100 + 1)
     jump_src = "
     custom_object = get_custom_object
-    metax = include_lib(params[0])
-    custom_object.shell = get_shell
+    metax = include_lib(params[3])
+    
+    custom_object.local_shell = get_shell
+    custom_object.shell = get_shell(params[1], params[2])
+
     custom_object.meta_libs = []
     lib_dir = get_shell.host_computer.File(""/lib"")
     for each_lib in lib_dir.get_files
@@ -806,37 +871,37 @@ COMMANDS["jump"].execute = function(args)
     end for
 
     router = get_router()
-    if params[1].len > 0 then
-        router = get_router(params[1])
+    if params[0].len > 0 then
+        router = get_router(params[0])
     end if
     if router == null then
         custom_object.router = null
-        exit
-    end if
-    custom_object.router = router
-    custom_object.net_sessions = {}
-    for ip in router.devices_lan_ip
-        custom_object.net_sessions[ip] = {}
-        ports = router.device_ports(ip)
-        if typeof(ports) == ""list"" then
-            for port in ports
-                port_num = port.port_number
-                net_session = metax.net_use(ip, port_num)
-                if not net_session then
-                    continue
-                end if
-                if port.get_lan_ip == ip then
-                    custom_object.net_sessions[ip][port_num] = net_session
-                else
-                    if not custom_object.net_sessions.hasIndex(port.get_lan_ip) then
-                        custom_object.net_sessions[port.get_lan_ip] = {}
+    else
+        custom_object.router = router
+        custom_object.net_sessions = {}
+        for ip in router.devices_lan_ip
+            custom_object.net_sessions[ip] = {}
+            ports = router.device_ports(ip)
+            if typeof(ports) == ""list"" then
+                for port in ports
+                    port_num = port.port_number
+                    net_session = metax.net_use(ip, port_num)
+                    if not net_session then
+                        continue
                     end if
-                    custom_object.net_sessions[port.get_lan_ip][port_num] = net_session
-                end if
-            end for
-        end if
-    end for
-    custom_object.net_sessions[router.local_ip][0] = metax.net_use(router.local_ip, 0)
+                    if port.get_lan_ip == ip then
+                        custom_object.net_sessions[ip][port_num] = net_session
+                    else
+                        if not custom_object.net_sessions.hasIndex(port.get_lan_ip) then
+                            custom_object.net_sessions[port.get_lan_ip] = {}
+                        end if
+                        custom_object.net_sessions[port.get_lan_ip][port_num] = net_session
+                    end if
+                end for
+            end if
+        end for
+        custom_object.net_sessions[router.local_ip][0] = metax.net_use(router.local_ip, 0)
+    end if
     " 
     jump_path = globals.UTILS.resolvePath(args["jump_path"])
     result = globals.UTILS.writeFile(globals.SHELL, jump_path, file_name + ".src", jump_src)
@@ -855,7 +920,7 @@ COMMANDS["jump"].execute = function(args)
     if result.len > 0 then
         return result
     end if
-    result = globals.SHELL.launch(jump_path + "/" + file_name, globals.METAX_PATH + " " + args["ip"])
+    result = globals.SHELL.launch(args["ip"], args["username"], args["passwd"], jump_path + "/metaxploit.so")
     if result != true then
         return "Failed to jump"
     end if
@@ -917,7 +982,7 @@ COMMANDS["scan"].execute = function(args)
         end for
         globals.SCAN_CACHE[router.public_ip][router.local_ip]["port"][0] = globals.METAX_LIB.net_use(router.local_ip, 0)
     else
-        result = globals.COMMANDS.jump.execute([args["ip"]])
+        result = globals.COMMANDS.jump.execute([args["ip"], "root", "root", globals.ENV_VAR.jump_path])
         if typeof(result) then
             return result
         end if
@@ -938,7 +1003,7 @@ COMMANDS["scan"].execute = function(args)
             end for
         end for
         for meta_lib in get_custom_object.meta_libs
-            globals.SCAN_CACHE.syncLib(pub_ip, get_custom_object.shell.host_computer.local_ip, meta_lib)
+            globals.SCAN_CACHE.syncLib(pub_ip, get_custom_object.local_shell.host_computer.local_ip, meta_lib)
         end for
     end if
     globals.UTILS.cliPrint("devices:")
@@ -1003,30 +1068,84 @@ COMMANDS["hack"].execute = function(args)
             if typeof(flow) != "shell" and typeof(flow) != "computer" and typeof(flow) != "file" then
                 flow = lib.overflow(address, zone, loc_ip)
             end if
-            print typeof(flow)
             globals.SCAN_CACHE.syncItem(pub_ip, loc_ip, flow)
         end for
     end for
 
-    globals.UTILS.cliPrint("shell: ")
+    next_shell = null
+    user_item = null
     shells = globals.SCAN_CACHE.getShell(pub_ip, loc_ip)
-    for shell in shells
-        user = globals.UTILS.getUser(shell)
-        globals.UTILS.cliPrint("  " + user)
-    end for
-    globals.UTILS.cliPrint("computer: ")
+    if shells.len > 0 then
+        globals.UTILS.cliPrint("shell: ")
+        for shell in shells
+            user = globals.UTILS.getUser(shell)
+            globals.UTILS.cliPrint("  " + user)
+            if not user_item and user != "guest" then
+                user_item = shell
+            end if
+            if not next_shell then
+                next_shell = shell
+            end if
+        end for
+    end if
+
     computers = globals.SCAN_CACHE.getComputer(pub_ip, loc_ip)
-    for computer in computers
-        user = globals.UTILS.getUser(computer)
-        globals.UTILS.cliPrint("  " + user)
-    end for
-    globals.UTILS.cliPrint("file: ")
+    if computers.len > 0 then
+        globals.UTILS.cliPrint("computer: ")
+        for computer in computers
+            user = globals.UTILS.getUser(computer)
+            globals.UTILS.cliPrint("  " + user)
+            if not user_item and user != "guest" then
+                user_item = computer
+            end if
+        end for
+    end if
+
     files = globals.SCAN_CACHE.getFile(pub_ip, loc_ip)
-    for file in shells
-        user = globals.UTILS.getUser(file)
-        globals.UTILS.cliPrint("  " + user)
-    end for
-    
+    if files.len > 0 then
+        globals.UTILS.cliPrint("file: ")
+        for file in files
+            user = globals.UTILS.getUser(file)
+            globals.UTILS.cliPrint("  " + user)
+            if not user_item and user != "guest" then
+                user_item = file
+            end if
+        end for
+    end if
+
+    if user_item then
+        passwd_file = globals.UTILS.getFile(user_item, "/etc/passwd")
+        if typeof(passwd_file) == "file" then
+            passwd_split = passwd_file.get_content.split("\n")[:-1]
+            for passwd in passwd_split
+                user = passwd.split(":")
+                globals.SCAN_CACHE.syncUser(pub_ip, loc_ip, user[0], user[1])
+            end for
+        end if
+    end if
+
+    users = globals.SCAN_CACHE.getUser(pub_ip, loc_ip)
+    if users.len > 0 then
+        globals.UTILS.cliPrint("user: ")
+        for user in users
+            globals.UTILS.cliPrint("  " + user["key"] + " " + user["value"])
+        end for
+    end if
+    if next_shell then
+        perm = globals.UTILS.getPermission(next_shell)
+        if perm != "root" then
+            root_passwd = globals.SCAN_CACHE.getRootPasswd(pub_ip)
+            if root_passwd then
+                globals.UTILS.useShell(next_shell)
+            else
+                globals.UTILS.useShell(next_shell)
+            end if
+        else
+            globals.UTILS.useShell(next_shell)
+        end if
+    else
+        return "Failed to get shell"
+    end if
 end function
 COMMANDS.regCmd("shell", "display cached shell")
 // hack commands end
