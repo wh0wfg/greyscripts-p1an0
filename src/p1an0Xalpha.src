@@ -2,6 +2,7 @@
 ENV_VAR = {}
 ENV_VAR.JUMP_PATH = "/home/guest"
 ENV_VAR.JUMP_NAME = "jumpfile"
+ENV_VAR.TRACELESS  = "true"
 // environment variable end
 // global variables begin
 SHELL = get_shell
@@ -36,7 +37,7 @@ SCAN_CACHE = {}
 // SCAN_CACHE = {
 //     public_ip: {
 //         local_ip: {
-//             "port": {port_num: net_session, ...},
+//             "port": {port_num: net_session, router_ip: net_session, ...},
 //             "lib": [metaLib, ...],
 //             "shell" : [shell, ...],
 //             "computer": [commputer, ...],
@@ -81,6 +82,29 @@ SCAN_CACHE.syncItem = function(pub_ip, loc_ip, item)
     else if typeof(item) == "file" then
         globals.SCAN_CACHE[pub_ip][loc_ip]["file"].push(item)
     end if
+end function
+SCAN_CACHE.getMasterKey = function(pub_ip)
+    if not globals.SCAN_CACHE.hasIndex(pub_ip) then
+        return null
+    end if
+    count = {}
+    for ip in globals.SCAN_CACHE[pub_ip].indexes
+        for user in globals.SCAN_CACHE[pub_ip][ip]["user"]
+            if not count.hasIndex(user["key"]) then
+                count[user["key"]] = {"count": 0, "passwd": user["value"]}
+            end if
+            count[user["key"]]["count"] = count[user["key"]]["count"] + 1
+        end for
+    end for
+    max_count = -1
+    max_passwd = null
+    for user in count.indexes
+        if count[user]["count"] > max_count then
+            max_count = count[user]["count"]
+            max_passwd = count[user]["passwd"]
+        end if
+    end for
+    return max_passwd
 end function
 SCAN_CACHE.getUser = function(pub_ip, loc_ip)
     if globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
@@ -477,7 +501,9 @@ UTILS.makeJumpfile = function(shell, jump_path, file_name)
         get_custom_object[cmd] = shell
     else if cmd == ""scan"" then
         router = get_router
+        local_flag = true
         if params.len > 1 and params[1].len > 0 then
+            local_flag = false
             router = get_router(params[1])
         end if
         if not router then
@@ -506,7 +532,11 @@ UTILS.makeJumpfile = function(shell, jump_path, file_name)
                 end for
             end if
         end for
-        result[router.local_ip][0] = metax.net_use(router.local_ip, 0)
+        if local_flag then
+            result[router.local_ip][0] = metax.net_use(router.local_ip, 0)
+        else
+            result[router.local_ip][0] = metax.net_use(params[1], 0)
+        end if
         get_custom_object[cmd] = {""result"": result, ""router"": router}
     else if cmd == ""lib"" then
         lib_dir = get_shell.host_computer.File(""/lib"")
@@ -1012,6 +1042,24 @@ COMMANDS["su"].execute = function(args)
                 break
             end if
         end for
+        // try master key
+        if args["user"] == "root" then
+            passwd = globals.SCAN_CACHE.getMasterKey(pub_ip)
+            if passwd then
+                if passwd.matches("^[a-fA-F0-9]{32}$").len != 0 then
+                    passwd = globals.CRYPTO_LIB.decipher(passwd)
+                end if
+                jump = globals.UTILS.useJumpfile(globals.SHELL, globals.ENV_VAR.JUMP_PATH, globals.ENV_VAR.JUMP_NAME, ["su", args["user"], passwd])
+                if typeof(jump) == "string" then
+                    return jump
+                else if typeof(jump) == "shell" then 
+                    globals.SCAN_CACHE[pub_ip][loc_ip]["user"][args["user"]] = passwd
+                    globals.SCAN_CACHE[pub_ip][loc_ip]["shell"].push(jump)
+                    globals.UTILS.useShell(jump)
+                    return
+                end if
+            end if
+        end if
         // use input passwd
         passwd = globals.UTILS.cliInput("Password: ", true)
         jump = globals.UTILS.useJumpfile(globals.SHELL, globals.ENV_VAR.JUMP_PATH, globals.ENV_VAR.JUMP_NAME, ["su", args["user"], passwd])
@@ -1161,10 +1209,10 @@ COMMANDS["ifconfig"].execute = function(args)
             flag = "MONITOR"
         end if
         globals.UTILS.cliPrint(item_split[0] + ": flags=<" + flag + ">")
-        globals.UTILS.cliPrint("  inet " + computer.local_ip + "  gateway " + computer.network_gateway)
-        globals.UTILS.cliPrint("  inet " + computer.public_ip)
         globals.UTILS.cliPrint("  chipset " + item_split[1])
     end for
+    globals.UTILS.cliPrint("  inet " + computer.local_ip + "  gateway " + computer.network_gateway)
+    globals.UTILS.cliPrint("  inet " + computer.public_ip)
     
 end function
 COMMANDS.regCmd("decipher")
@@ -1230,7 +1278,11 @@ COMMANDS["scan"].execute = function(args)
                 end for
             end if
         end for
-        result[router.local_ip][0] = globals.METAX_LIB.net_use(router.local_ip, 0)
+        if args["ip"].len == 0 then
+            result[router.local_ip][0] = globals.METAX_LIB.net_use(router.local_ip, 0)
+        else
+            result[router.local_ip][0] = globals.METAX_LIB.net_use(args["ip"], 0)
+        end if
     else
         jump = globals.UTILS.useJumpfile(globals.SHELL, globals.ENV_VAR.JUMP_PATH, globals.ENV_VAR.JUMP_NAME, ["scan", args["ip"]])
         if typeof(jump) == "string" then
@@ -1249,6 +1301,9 @@ COMMANDS["scan"].execute = function(args)
         for port_num in result[ip].indexes
             globals.SCAN_CACHE.syncSession(pub_ip, ip, port_num, result[ip][port_num])
         end for
+        if ip != loc_ip then
+            globals.SCAN_CACHE.syncSession(pub_ip, ip, loc_ip, result[loc_ip][0])
+        end if
     end for
     globals.UTILS.cliPrint("router:")
     globals.UTILS.cliPrint("  public ip: " + pub_ip)
@@ -1285,21 +1340,30 @@ COMMANDS["hack"].execute = function(args)
         return "Scan cache not found"
     end if
 
-    meta_libs = globals.SCAN_CACHE[pub_ip][loc_ip]["port"].values + globals.SCAN_CACHE[pub_ip][loc_ip]["lib"]
+    meta_libs = []
+    for net_session in globals.SCAN_CACHE[pub_ip][loc_ip]["port"]
+        meta_libs.push(net_session)
+    end for
+    for lib in globals.SCAN_CACHE[pub_ip][loc_ip]["lib"]
+        meta_libs.push({"key": "lib", "value": lib})
+    end for
+
     if meta_libs.len == 0 then
         return "No open port or local lib"
     end if
     for lib in meta_libs
-        if typeof(lib) == "NetSession" then
-            lib = lib.dump_lib
+        if lib["key"] == "lib" then
+            metaLib = lib["value"]
+        else
+            metaLib = lib["value"].dump_lib
         end if
-        libName = lib.lib_name
-        libVersion = lib.version
+        libName = metaLib.lib_name
+        libVersion = metaLib.version
         globals.UTILS.cliPrint(libName + " " + libVersion)
 
         if not globals.METAX_CACHE.hasLib(libName, libVersion) then
-            for address in globals.METAX_LIB.scan(lib)
-                info = globals.METAX_LIB.scan_address(lib, address).split("Unsafe check: ").replace(char(10), "")
+            for address in globals.METAX_LIB.scan(metaLib)
+                info = globals.METAX_LIB.scan_address(metaLib, address).split("Unsafe check: ").replace(char(10), "")
                 for info_line in info
                     if info_line == info[0] then continue
                     zone = info_line[info_line.indexOf("<b>")+3:info_line.indexOf("</b>")]
@@ -1311,9 +1375,20 @@ COMMANDS["hack"].execute = function(args)
         for each_vulner in globals.METAX_CACHE.getVulner(libName, libVersion)
             address = each_vulner["key"]
             zone = each_vulner["value"]
-            flow = lib.overflow(address, zone)
-            if typeof(flow) != "shell" and typeof(flow) != "computer" and typeof(flow) != "file" then
-                flow = lib.overflow(address, zone, loc_ip)
+            flow = metaLib.overflow(address, zone)
+            if typeof(lib["key"]) == "string" then
+                flow = metaLib.overflow(address, zone, loc_ip)
+            end if
+            if typeof(flow) == "shell" then
+                if flow.host_computer.local_ip != loc_ip or flow.host_computer.public_ip != pub_ip then
+                    print flow.host_computer.public_ip
+                    continue
+                end if
+            else if typeof(flow) == "computer" then
+                if flow.local_ip != loc_ip or flow.public_ip != pub_ip then
+                    print flow.public_ip
+                    continue
+                end if
             end if
             globals.SCAN_CACHE.syncItem(pub_ip, loc_ip, flow)
         end for
@@ -1324,12 +1399,13 @@ COMMANDS["hack"].execute = function(args)
     shells = globals.SCAN_CACHE[pub_ip][loc_ip]["shell"]
     mails = globals.SCAN_CACHE[pub_ip][loc_ip]["mail"]
     
-    if shells.len == 0 and mails.len > 0 then
+    if mails.len > 0 then
         globals.UTILS.cliPrint("mail: ")
         for mail in mails
             globals.UTILS.cliPrint("  " + mail["key"] + " " + mail["value"])
         end for
-    else if shells.len > 0 then
+    end if
+    if shells.len > 0 then
         globals.UTILS.cliPrint("shell: ")
         for index in shells.indexes
             shell = shells[index]
@@ -1340,7 +1416,8 @@ COMMANDS["hack"].execute = function(args)
         if typeof(use) == "number" or use >= 0 and use < shells.len then
             globals.UTILS.useShell(shells[use])
         end if
-    else
+    end if
+    if mails.len == 0 and shells.len == 0 then
         return "No exploit"
     end if
 end function
@@ -1350,10 +1427,46 @@ COMMANDS["jump"].execute = function(args)
     if typeof(jump) == "string" then
         return jump
     end if
-    upload = scp(get_shell, globals.METAX_PATH, jump_path, globals.SHELL)
+    upload = scp(get_shell, globals.METAX_PATH, globals.ENV_VAR.JUMP_PATH, globals.SHELL)
     if upload != true then
         return upload
     end if
+end function
+COMMANDS.regCmd("clog", "clear log of all shell")
+COMMANDS["clog"].execute = function(args)
+    result = {}
+    shells = [globals.SHELL]
+    for shell in globals.USED_SHELL
+        shells.push(shell[0])
+    end for
+    for shell in shells
+        replace_file = globals.UTILS.writeFile(shell, "/var", "p1an0Xalpha", "p1an0Xalpha")
+        ip = shell.host_computer.public_ip + " " + shell.host_computer.local_ip
+        if typeof(replace_file) == "string" then
+            if not result.hasIndex(ip) or result[ip] != "success" then
+                result[ip] = replace_file
+            end if
+            continue
+        end if
+        replace_file = globals.UTILS.getFile(shell, "/var/p1an0Xalpha")
+        if typeof(replace_file) == "string" then
+            if not result.hasIndex(ip) or result[ip] != "success" then
+                result[ip] = replace_file
+            end if
+            continue
+        end if
+        mv = replace_file.move("/var", "system.log")
+        if typeof(mv) == "string" then
+            if not result.hasIndex(ip) or result[ip] != "success" then
+                result[ip] = mv
+            end if
+            continue
+        end if
+        result[ip] = "success"
+    end for
+    for ip in result.indexes
+        globals.UTILS.cliPrint(ip + ": " + result[ip])
+    end for
 end function
 // hack commands end
 // commands end
