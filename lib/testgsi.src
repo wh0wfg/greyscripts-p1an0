@@ -363,7 +363,7 @@ end function
 addressOfExpression = new GSINode
 addressOfExpression.type = "addressOfExpression"
 addressOfExpression.expand_func = function()
-    return self.series([requireAt, requireIdentifier])
+    return self.series([requireAt, objectExpression])
 end function
 // address of expression end
 // expression statement start
