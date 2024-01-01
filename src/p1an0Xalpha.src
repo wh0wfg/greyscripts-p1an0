@@ -37,8 +37,9 @@ SCAN_CACHE = {}
 // SCAN_CACHE = {
 //     public_ip: {
 //         local_ip: {
-//             "port": {port_num: net_session, router_ip: net_session, ...},
+//             "port": {port_num: net_session, ...},
 //             "lib": [metaLib, ...],
+//             "children": [child_ip, ...],
 //             "shell" : [shell, ...],
 //             "computer": [commputer, ...],
 //             "file": [file, ...],
@@ -57,13 +58,21 @@ SCAN_CACHE.syncMachine = function(pub_ip, loc_ip)
     if not globals.SCAN_CACHE.hasIndex(pub_ip) then
         globals.SCAN_CACHE[pub_ip] = {}
     end if
-    globals.SCAN_CACHE[pub_ip][loc_ip] = {"port": {}, "lib": [], "shell": [], "computer": [], "file": [], "user": {}, "mail": {}, "bank": {}}
+    globals.SCAN_CACHE[pub_ip][loc_ip] = {"port": {}, "lib": [], "children": [], "shell": [], "computer": [], "file": [], "user": {}, "mail": {}, "bank": {}}
 end function
 SCAN_CACHE.syncSession = function(pub_ip, loc_ip, port_num, net_session)
     if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
         globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
     end if
     globals.SCAN_CACHE[pub_ip][loc_ip]["port"][port_num] = net_session
+end function
+SCAN_CACHE.syncChild = function(pub_ip, loc_ip, child_ip)
+    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        globals.SCAN_CACHE.syncMachine(pub_ip, loc_ip)
+    end if
+    if globals.SCAN_CACHE[pub_ip][loc_ip]["children"].indexOf(child_ip) == null then
+        globals.SCAN_CACHE[pub_ip][loc_ip]["children"].push(child_ip)
+    end if
 end function
 SCAN_CACHE.syncLib = function(pub_ip, loc_ip, meta_lib)
     if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
@@ -81,6 +90,26 @@ SCAN_CACHE.syncItem = function(pub_ip, loc_ip, item)
         globals.SCAN_CACHE[pub_ip][loc_ip]["computer"].push(item)
     else if typeof(item) == "file" then
         globals.SCAN_CACHE[pub_ip][loc_ip]["file"].push(item)
+    end if
+end function
+SCAN_CACHE.getRouters = function(pub_ip, loc_ip)
+    if globals.SCAN_CACHE.hasIndex(pub_ip) then
+        result = []
+        walk = function(ip, routers)
+            if ip == outer.loc_ip then
+                outer.result = routers
+                return
+            end if
+            if globals.SCAN_CACHE[pub_ip].hasIndex(ip) then
+                for next_ip in globals.SCAN_CACHE[pub_ip][ip]["children"]
+                    walk(next_ip, routers + [ip])
+                end for
+            end if
+        end function
+        walk(get_router(pub_ip).local_ip, [])
+        return result
+    else
+        return []
     end if
 end function
 SCAN_CACHE.getMasterKey = function(pub_ip)
@@ -145,7 +174,7 @@ SCAN_CACHE.grabMail = function(pub_ip, loc_ip)
         for item in items
             user = globals.UTILS.getUser(item)
             if user == "root" then
-                home = globals.UTILS.getFile(item, "/home")
+                home = globals.UTILS.getFile(item, "/home", true)
                 if typeof(home) == "file" then
                     for user_dir in home.get_folders
                         if user_dir.name != "guest" then
@@ -172,7 +201,7 @@ SCAN_CACHE.grabMail = function(pub_ip, loc_ip)
                         if mail.len == 0 then
                             continue
                         end if
-                        mail_split = mail.split[":"]
+                        mail_split = mail.split(":")
                         globals.SCAN_CACHE[pub_ip][loc_ip]["mail"][mail_split[0]] = mail_split[1]
                     end for
                 end if
@@ -186,7 +215,7 @@ SCAN_CACHE.grabBank = function(pub_ip, loc_ip)
         for item in items
             user = globals.UTILS.getUser(item)
             if user == "root" then
-                home = globals.UTILS.getFile(item, "/home")
+                home = globals.UTILS.getFile(item, "/home", true)
                 if typeof(home) == "file" then
                     for user_dir in home.get_folders
                         if user_dir.name != "guest" then
@@ -213,7 +242,7 @@ SCAN_CACHE.grabBank = function(pub_ip, loc_ip)
                         if bank.len == 0 then
                             continue
                         end if
-                        bank_split = bank.split[":"]
+                        bank_split = bank.split(":")
                         globals.SCAN_CACHE[pub_ip][loc_ip]["bank"][bank_split[0]] = bank_split[1]
                     end for
                 end if
@@ -500,44 +529,71 @@ UTILS.makeJumpfile = function(shell, jump_path, file_name)
         shell = get_shell(username, passwd)
         get_custom_object[cmd] = shell
     else if cmd == ""scan"" then
-        router = get_router
         local_flag = true
         if params.len > 1 and params[1].len > 0 then
             local_flag = false
-            router = get_router(params[1])
+            root_router = get_router(params[1])
+        else
+            root_router = get_router(get_shell.host_computer.public_ip)
         end if
-        if not router then
+        if not root_router then
             get_custom_object[cmd] = null
             exit
         end if
+
+        router_stack = [root_router]
         result = {}
-        for ip in router.devices_lan_ip
-            result[ip] = {}
-            ports = router.device_ports(ip)
-            if typeof(ports) == ""list"" then
-                for port in ports
-                    port_num = port.port_number
-                    net_session = metax.net_use(ip, port_num)
-                    if not net_session then
-                        continue
-                    end if
-                    if port.get_lan_ip == ip then
-                        result[ip][port_num] = net_session
-                    else
-                        if not result.hasIndex(port.get_lan_ip) then
-                            result[port.get_lan_ip] = {}
-                        end if
-                        result[port.get_lan_ip][port_num] = net_session
-                    end if
-                end for
+        while router_stack.len > 0
+            router = router_stack.pop
+            if not result.hasIndex(router.local_ip) then
+                result[router.local_ip] = {""port"": {}, ""children"": []}
             end if
-        end for
-        if local_flag then
-            result[router.local_ip][0] = metax.net_use(router.local_ip, 0)
-        else
-            result[router.local_ip][0] = metax.net_use(params[1], 0)
-        end if
-        get_custom_object[cmd] = {""result"": result, ""router"": router}
+            for ip in router.devices_lan_ip
+                next_router = get_router(ip)
+                if next_router and not result.hasIndex(ip) then
+                    router_stack.push(next_router)
+                end if
+                if router.local_ip != ip and not result.hasIndex(ip) then
+                    result[router.local_ip][""children""].push(ip)
+                    result[ip] = {""port"": {}, ""children"": []}
+                end if
+
+                ports = router.device_ports(ip)
+                if typeof(ports) == ""list"" then
+                    for port in ports
+                        port_num = port.port_number
+                        if local_flag then
+                            net_session = metax.net_use(ip, port_num)
+                        else if router.local_ip == root_router.local_ip and router.local_ip == ip then
+                            net_session = metax.net_use(root_router.public_ip, port_num)
+                        else
+                            continue
+                        end if
+                        if not net_session then
+                            continue
+                        end if
+                        if port.get_lan_ip == ip then
+                            result[ip][""port""][port_num] = net_session
+                        else
+                            if not result.hasIndex(port.get_lan_ip) then
+                                result[ip][""children""].push(port.get_lan_ip)
+                            end if
+                            if not result.hasIndex(port.get_lan_ip) then
+                                result[port.get_lan_ip] = {""port"": {}, ""children"": []}
+                            end if
+                            result[port.get_lan_ip][""port""][port_num] = net_session
+                        end if
+                    end for
+                end if
+            end for
+            if local_flag then
+                result[router.local_ip][""port""][0] = metax.net_use(router.local_ip, 0)
+            else if router.local_ip == root_router.local_ip then
+                result[router.local_ip][""port""][0] = metax.net_use(router.public_ip, 0)
+            end if
+        end while
+
+        get_custom_object[cmd] = {""result"": result, ""router"": root_router}
     else if cmd == ""lib"" then
         lib_dir = get_shell.host_computer.File(""/lib"")
         if lib_dir then
@@ -551,6 +607,45 @@ UTILS.makeJumpfile = function(shell, jump_path, file_name)
         else
             get_custom_object[cmd] = null
         end if
+    else if cmd == ""hack"" then
+        items = []
+        meta_libs = get_custom_object.meta_libs
+        vulners = get_custom_object.vulners
+        is_bounce = get_custom_object.is_bounce
+        loc_ip = params[1]
+        if params.len > 2 and params[2].len > 0 then
+            pub_ip = params[2]
+        else
+            pub_ip = get_shell.host_computer.public_ip
+        end if
+        for index in meta_libs.indexes
+            metaLib = meta_libs[index]
+            bounce = is_bounce[index]
+            libName = metaLib.lib_name
+            libVersion = metaLib.version
+            for vulner in vulners[libName][libVersion]
+                address = vulner[""key""]
+                zone = vulner[""value""]
+                if bounce then
+                    flow = metaLib.overflow(address, zone, loc_ip)
+                else
+                    flow = metaLib.overflow(address, zone)
+                end if
+                if typeof(flow) == ""shell"" then
+                    if flow.host_computer.local_ip != loc_ip or flow.host_computer.public_ip != pub_ip then
+                        print flow.host_computer.local_ip
+                        continue
+                    end if
+                else if typeof(flow) == ""computer"" then
+                    if flow.local_ip != loc_ip or flow.public_ip != pub_ip then
+                        print flow.local_ip
+                        continue
+                    end if
+                end if
+                items.push(flow)
+            end for
+        end for
+        get_custom_object[cmd] = items
     end if
     "
     write = globals.UTILS.writeFile(shell, jump_path, file_name + ".src", jump_src)
@@ -562,29 +657,13 @@ UTILS.makeJumpfile = function(shell, jump_path, file_name)
         return compile
     end if
 end function
-UTILS.useJumpfile = function(shell, jump_path, file_name, args) // unsafe custom.indexes
+UTILS.useJumpfile = function(shell, jump_path, file_name, args, object=null) // unsafe custom.indexes
     args_string = ""
     for arg in args
         args_string = args_string + arg  + " "
     end for
-    for index in get_custom_object.indexes
-        get_custom_object.remove(@index)
-    end for
 
     jumpfile_path = jump_path + "/" + file_name
-
-    run = shell.launch(jumpfile_path, args_string)
-    if run != true then
-        make = globals.UTILS.makeJumpfile(shell, jump_path, file_name)
-        if typeof(make) == "string" then
-            return make
-        end if
-
-        run = shell.launch(jumpfile_path, args_string)
-        if run != true then
-            return "Failed to launch jumpfile"
-        end if
-    end if
     if args[0] == "lib" or args[0] == "scan" then
         metax = globals.UTILS.getFile(shell, jump_path + "/metaxploit.so")
         if typeof(metax) != "file" then
@@ -592,6 +671,35 @@ UTILS.useJumpfile = function(shell, jump_path, file_name, args) // unsafe custom
             if upload != true then
                 return upload
             end if
+        end if
+    end if
+
+    for index in get_custom_object.indexes
+        get_custom_object.remove(@index)
+    end for
+    if object then
+        for index in object.indexes
+            get_custom_object[index] = object[index]
+        end for
+    end if
+    run = shell.launch(jumpfile_path, args_string)
+    if run != true then
+        make = globals.UTILS.makeJumpfile(shell, jump_path, file_name)
+        if typeof(make) == "string" then
+            return make
+        end if
+
+        for index in get_custom_object.indexes
+            get_custom_object.remove(@index)
+        end for
+        if object then
+            for index in object.indexes
+                get_custom_object[index] = object[index]
+            end for
+        end if
+        run = shell.launch(jumpfile_path, args_string)
+        if run != true then
+            return "Failed to launch jumpfile"
         end if
     end if
 
@@ -611,26 +719,46 @@ UTILS.useJumpfile = function(shell, jump_path, file_name, args) // unsafe custom
             if custom["scan"].hasIndex("result") and typeof(@custom["scan"]["result"]) == "map" then
                 for loc_ip in custom["scan"]["result"].indexes
                     if typeof(@loc_ip) == "string" and typeof(@custom["scan"]["result"][loc_ip]) == "map" then
-                        for port_num in custom["scan"]["result"][loc_ip].indexes
-                            if typeof(@port_num) != "number" or typeof(@custom["scan"]["result"][loc_ip][port_num]) != "NetSession" then
-                                return "Jumpfile error1"
-                            end if
-                        end for
+                        if custom["scan"]["result"][loc_ip].hasIndex("port") and typeof(@custom["scan"]["result"][loc_ip]["port"]) == "map" then
+                            for port_num in custom["scan"]["result"][loc_ip]["port"].indexes
+                                if typeof(@port_num) != "number" or typeof(@custom["scan"]["result"][loc_ip]["port"][port_num]) != "NetSession" then
+                                    return "Jumpfile error: net session"
+                                end if
+                            end for
+                        else
+                            return "Jumpfile error: port"
+                        end if
+                        if custom["scan"]["result"][loc_ip].hasIndex("children") and typeof(@custom["scan"]["result"][loc_ip]["children"]) == "list" then
+                            for child in custom["scan"]["result"][loc_ip]["children"]
+                                if typeof(@child) != "string" then
+                                    return "Jumpfile error: child"
+                                end if
+                            end for
+                        else
+                            return "Jumpfile error: children"
+                        end if
                     else
-                        return "Jumpfile error2"
+                        return "Jumpfile error: local ip"
                     end if
                 end for
                 return custom["scan"]
             else
-                return "Jumpfile error4"
+                return "Jumpfile error: result"
             end if
         else
-            return "Jumpfile error5"
+            return "Jumpfile error: scan"
         end if
     else if cmd == "lib" and custom.hasIndex(cmd) and typeof(@custom[cmd]) == "list" then
         for lib in custom[cmd]
             if typeof(@lib) != "MetaLib" then
                 return "Jumpfile error: lib"
+            end if
+        end for
+        return custom[cmd]
+    else if cmd == "hack" and custom.hasIndex(cmd) and typeof(@custom[cmd]) == "list" then
+        for item in custom[cmd]
+            if typeof(@item) != "string" and typeof(@item) != "number" and typeof(@item) != "shell" and typeof(@item) != "computer" and typeof(@item) != "file" and typeof(@item) != "null"then
+                return "Jumpfile error: hack"
             end if
         end for
         return custom[cmd]
@@ -1237,7 +1365,7 @@ end function
 // system commands end
 // hack commands begin
 COMMANDS.regCmd("scan", "scan target router and cache result")
-COMMANDS["scan"].parser.addValue("ip", "router ip", "")
+COMMANDS["scan"].parser.addValue("ip", "target ip", "")
 COMMANDS["scan"].execute = function(args)
     args = globals.COMMANDS["scan"]["parser"].parse(args)
     if typeof(args) == "string" then
@@ -1246,75 +1374,59 @@ COMMANDS["scan"].execute = function(args)
     if args["ip"].len > 0 and not is_valid_ip(args["ip"]) then
         return "Invalid ip"
     end if
-
-    if globals.UTILS.isHost then
-        if args["ip"].len == 0 then
-            router = get_router
-        else
-            router = get_router(args["ip"])
-        end if
-        if not router then
-            return "Connection failure"
-        end if
-        result = {}
-        for ip in router.devices_lan_ip
-            result[ip] = {}
-            ports = router.device_ports(ip)
-            if typeof(ports) == "list" then
-                for port in ports
-                    port_num = port.port_number
-                    net_session = globals.METAX_LIB.net_use(ip, port_num)
-                    if not net_session then
-                        continue
-                    end if
-                    if port.get_lan_ip == ip then
-                        result[ip][port_num] = net_session
-                    else
-                        if not result.hasIndex(port.get_lan_ip) then
-                            result[port.get_lan_ip] = {}
-                        end if
-                        result[port.get_lan_ip][port_num] = net_session
-                    end if
-                end for
-            end if
-        end for
-        if args["ip"].len == 0 then
-            result[router.local_ip][0] = globals.METAX_LIB.net_use(router.local_ip, 0)
-        else
-            result[router.local_ip][0] = globals.METAX_LIB.net_use(args["ip"], 0)
-        end if
-    else
-        jump = globals.UTILS.useJumpfile(globals.SHELL, globals.ENV_VAR.JUMP_PATH, globals.ENV_VAR.JUMP_NAME, ["scan", args["ip"]])
-        if typeof(jump) == "string" then
-            return jump
-        end if
-        if jump == null then
-            return "Connection failure"
-        end if
-        router = jump["router"]
-        result = jump["result"]
+    if args["ip"].len > 0 and not globals.SHELL.ping(args["ip"]) then
+        return "Target unreachable"
     end if
+
+    if is_lan_ip(args["ip"]) then
+        scan_args = ["scan"]
+    else
+        scan_args = ["scan", args["ip"]]
+    end if
+    jump = globals.UTILS.useJumpfile(globals.SHELL, globals.ENV_VAR.JUMP_PATH, globals.ENV_VAR.JUMP_NAME, scan_args)
+    if typeof(jump) == "string" then
+        return jump
+    end if
+    if jump == null then
+        return "Connection failure"
+    end if
+    router = jump["router"]
+    result = jump["result"]
 
     pub_ip = router.public_ip
     loc_ip = router.local_ip
     for ip in result.indexes
-        for port_num in result[ip].indexes
-            globals.SCAN_CACHE.syncSession(pub_ip, ip, port_num, result[ip][port_num])
+        for port_num in result[ip]["port"].indexes
+            globals.SCAN_CACHE.syncSession(pub_ip, ip, port_num, result[ip]["port"][port_num])
         end for
-        if ip != loc_ip then
-            globals.SCAN_CACHE.syncSession(pub_ip, ip, loc_ip, result[loc_ip][0])
+        for child in result[ip]["children"]
+            globals.SCAN_CACHE.syncChild(pub_ip, ip, child)
+        end for
+    end for
+
+    show_tree = function(ip, depth)
+        if outer.result.hasIndex(ip) then
+            globals.UTILS.cliPrint(depth + ip + ":")
+            for port in outer.result[ip]["port"]
+                globals.UTILS.cliPrint(depth + "  " + port["key"] + " " + port["value"].dump_lib.lib_name + " " + port["value"].dump_lib.version)
+            end for
+            for next_ip in outer.result[ip]["children"]
+                show_tree(next_ip, depth+"  ")
+            end for
         end if
-    end for
-    globals.UTILS.cliPrint("router:")
-    globals.UTILS.cliPrint("  public ip: " + pub_ip)
-    globals.UTILS.cliPrint("  local  ip: " + loc_ip)
-    globals.UTILS.cliPrint("devices:")
-    for ip in globals.SCAN_CACHE[pub_ip].indexes
-        globals.UTILS.cliPrint("  " + ip + ": ")
-        for port in globals.SCAN_CACHE[pub_ip][ip]["port"]
-            globals.UTILS.cliPrint("    " + port["key"] + " " + port["value"].dump_lib.lib_name + " " + port["value"].dump_lib.version)
+    end function
+
+    if is_lan_ip(args["ip"]) then
+        show_tree(args["ip"], "")
+    else
+        globals.UTILS.cliPrint("public ip: " + pub_ip + "  local ip: " + loc_ip)
+        for port in result[loc_ip]["port"]
+            globals.UTILS.cliPrint("  " + port["key"] + " " + port["value"].dump_lib.lib_name + " " + port["value"].dump_lib.version)
         end for
-    end for
+        for ip in result[loc_ip]["children"]
+            show_tree(ip, "  ")
+        end for
+    end if
 end function
 COMMANDS.regCmd("hack", "exploit net_session or meta_lib")
 COMMANDS["hack"].parser.addValue("local_ip", "local ip")
@@ -1336,31 +1448,34 @@ COMMANDS["hack"].execute = function(args)
     if not is_lan_ip(loc_ip) then
         return "Invalid local ip"
     end if
-    if not globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
-        return "Scan cache not found"
-    end if
 
     meta_libs = []
-    for net_session in globals.SCAN_CACHE[pub_ip][loc_ip]["port"]
-        meta_libs.push(net_session)
-    end for
-    for lib in globals.SCAN_CACHE[pub_ip][loc_ip]["lib"]
-        meta_libs.push({"key": "lib", "value": lib})
+    is_bounce = []
+    if globals.SCAN_CACHE.hasMachine(pub_ip, loc_ip) then
+        for net_session in globals.SCAN_CACHE[pub_ip][loc_ip]["port"].values
+            meta_libs.push(net_session.dump_lib)
+            is_bounce.push(false)
+        end for
+        for lib in globals.SCAN_CACHE[pub_ip][loc_ip]["lib"]
+            meta_libs.push(lib)
+            is_bounce.push(false)
+        end for
+    end if
+    for router_ip in globals.SCAN_CACHE.getRouters(pub_ip, loc_ip)
+        for net_session in globals.SCAN_CACHE[pub_ip][router_ip]["port"].values
+            meta_libs.push(net_session.dump_lib)
+            is_bounce.push(true)
+        end for
     end for
 
     if meta_libs.len == 0 then
         return "No open port or local lib"
     end if
-    for lib in meta_libs
-        if lib["key"] == "lib" then
-            metaLib = lib["value"]
-        else
-            metaLib = lib["value"].dump_lib
-        end if
+    vulners = {}
+    for metaLib in meta_libs
         libName = metaLib.lib_name
         libVersion = metaLib.version
         globals.UTILS.cliPrint(libName + " " + libVersion)
-
         if not globals.METAX_CACHE.hasLib(libName, libVersion) then
             for address in globals.METAX_LIB.scan(metaLib)
                 info = globals.METAX_LIB.scan_address(metaLib, address).split("Unsafe check: ").replace(char(10), "")
@@ -1372,37 +1487,38 @@ COMMANDS["hack"].execute = function(args)
             end for
         end if
 
-        for each_vulner in globals.METAX_CACHE.getVulner(libName, libVersion)
-            address = each_vulner["key"]
-            zone = each_vulner["value"]
-            flow = metaLib.overflow(address, zone)
-            if typeof(lib["key"]) == "string" then
-                flow = metaLib.overflow(address, zone, loc_ip)
-            end if
-            if typeof(flow) == "shell" then
-                if flow.host_computer.local_ip != loc_ip or flow.host_computer.public_ip != pub_ip then
-                    print flow.host_computer.public_ip
-                    continue
-                end if
-            else if typeof(flow) == "computer" then
-                if flow.local_ip != loc_ip or flow.public_ip != pub_ip then
-                    print flow.public_ip
-                    continue
-                end if
-            end if
-            globals.SCAN_CACHE.syncItem(pub_ip, loc_ip, flow)
-        end for
+        if not vulners.hasIndex(libName) then
+            vulners[libName] = {}
+        end if
+        if not vulners[libName].hasIndex(libVersion) then
+            vulners[libName][libVersion] = {}
+        end if
+        vulners[libName][libVersion] = globals.METAX_CACHE.getVulner(libName, libVersion)
+    end for
+    jump = globals.UTILS.useJumpfile(globals.SHELL, globals.ENV_VAR.JUMP_PATH, globals.ENV_VAR.JUMP_NAME, ["hack", args["local_ip"], args["public_ip"]], {"meta_libs": meta_libs, "vulners": vulners, "is_bounce": is_bounce})
+    if typeof(jump) == "string" then
+        return jump
+    end if
+    for item in jump
+        globals.SCAN_CACHE.syncItem(pub_ip, loc_ip, item)
     end for
 
     globals.SCAN_CACHE.grabUser(pub_ip, loc_ip)
-    globals.SCAN_CACHE.grabBank(pub_ip, loc_ip)
+    globals.SCAN_CACHE.grabMail(pub_ip, loc_ip)
     shells = globals.SCAN_CACHE[pub_ip][loc_ip]["shell"]
     mails = globals.SCAN_CACHE[pub_ip][loc_ip]["mail"]
+    users = globals.SCAN_CACHE[pub_ip][loc_ip]["user"]
     
     if mails.len > 0 then
         globals.UTILS.cliPrint("mail: ")
         for mail in mails
             globals.UTILS.cliPrint("  " + mail["key"] + " " + mail["value"])
+        end for
+    end if
+    if users.len > 0 then
+        globals.UTILS.cliPrint("user: ")
+        for user in users
+            globals.UTILS.cliPrint("  " + user["key"] + " " + user["value"])
         end for
     end if
     if shells.len > 0 then
