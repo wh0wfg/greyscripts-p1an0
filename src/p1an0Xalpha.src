@@ -812,14 +812,14 @@ end function
 LexicalAnalyzer.init = function
    result = new LexicalAnalyzer
    result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
-   result.addRule("SPACE", "^[ \t]+", true)
-   result.addRule("ENTER", "^[\r\n]", true)
    return result
 end function
 // lexical analyzer end
 // cli parser begin
 CLIPARSER = {}
 CLIPARSER.lexer = LexicalAnalyzer.init
+CLIPARSER.lexer.addRule("SPACE", "^[ \t]+", true)
+CLIPARSER.lexer.addRule("ENTER", "^[\r\n]", true)
 CLIPARSER.lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 CLIPARSER.lexer.addRule("OTHER", "^[^\s]*")
 CLIPARSER.parse = function(input)
@@ -1614,3 +1614,51 @@ while true
     end if
 end while
 // main loop end
+// gsi begin
+GSILEXER = LexicalAnalyzer.init
+GSILEXER.addRule("SPACE", "^[ \t]+", true)
+GSILEXER.addRule("ENTER", "^[\r\n]")
+GSILEXER.addRule("COMMENT", "^\/\/.*(?=\n|\r|$)", true)
+GSILEXER.addRule("EQUALS", "^==")
+GSILEXER.addRule("NOT_EQ", "^!=")
+GSILEXER.addRule("GT_EQ", "^>=")
+GSILEXER.addRule("LT_EQ", "^<=")
+GSILEXER.addRule("ASSIGN", "^=")
+GSILEXER.addRule("LESS_THAN", "^<")
+GSILEXER.addRule("GREATER_THAN", "^>")
+GSILEXER.addRule("COLON", "^:")
+GSILEXER.addRule("ADD", "^\+")
+GSILEXER.addRule("MINUS", "^-")
+GSILEXER.addRule("DIV", "^\/")
+GSILEXER.addRule("MOD", "^%")
+GSILEXER.addRule("STAR", "^\*")
+GSILEXER.addRule("COMMA", "^,");
+GSILEXER.addRule("SEMI_COLON", "^;")
+GSILEXER.addRule("DOT", "^\.")
+GSILEXER.addRule("AT", "^@")
+GSILEXER.addRule("OPEN_PAREN", "^\(")
+GSILEXER.addRule("CLOSE_PAREN", "^\)")
+GSILEXER.addRule("OPEN_BRACE", "^\{")
+GSILEXER.addRule("CLOSE_BRACE", "^\}")
+GSILEXER.addRule("OPEN_BRACKET", "^\[")
+GSILEXER.addRule("CLOSE_BRACKET", "^\]")
+GSILEXER.addRule("IF", "^if(?![A-Za-z0-9_])")
+GSILEXER.addRule("THEN", "^then(?![A-Za-z0-9_])")
+GSILEXER.addRule("ELSE", "^else(?![A-Za-z0-9_])")
+GSILEXER.addRule("WHILE", "^while(?![A-Za-z0-9_])")
+GSILEXER.addRule("FOR", "^for(?![A-Za-z0-9_])")
+GSILEXER.addRule("FUNCTION", "^function(?![A-Za-z0-9_])")
+GSILEXER.addRule("NEW", "^new(?![A-Za-z0-9_])")
+GSILEXER.addRule("RETURN", "^return(?![A-Za-z0-9_])")
+GSILEXER.addRule("END", "^end(?![A-Za-z0-9_])")
+GSILEXER.addRule("IN", "^in(?![A-Za-z0-9_])")
+GSILEXER.addRule("AND", "^and(?![A-Za-z0-9_])")
+GSILEXER.addRule("OR", "^or(?![A-Za-z0-9_])")
+GSILEXER.addRule("NOT", "^not(?![A-Za-z0-9_])")
+GSILEXER.addRule("NULL", "^null(?![A-Za-z0-9_])")
+GSILEXER.addRule("TRUE", "^true(?![A-Za-z0-9_])")
+GSILEXER.addRule("FALSE", "^false(?![A-Za-z0-9_])")
+GSILEXER.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
+GSILEXER.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
+GSILEXER.addRule("NUMBER", "^-?\d+(\.\d+)?")
+// gsi end
