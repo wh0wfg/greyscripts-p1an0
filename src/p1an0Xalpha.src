@@ -1585,6 +1585,18 @@ COMMANDS["clog"].execute = function(args)
     end for
 end function
 // hack commands end
+// gsi commands begin
+COMMANDS.regCmd("gsi", "greyscript interpreter")
+COMMANDS["gsi"].parser.addValue("code", "code string")
+COMMANDS["gsi"].execute = function(args)
+    args = globals.COMMANDS["gsi"]["parser"].parse(args)
+    if typeof(args) == "string" then
+        return args
+    end if
+
+    
+end function
+// gsi commands end
 // commands end
 // main loop begin
 getInput = function()
@@ -1615,6 +1627,7 @@ while true
 end while
 // main loop end
 // gsi begin
+// lexer begin
 GSILEXER = LexicalAnalyzer.init
 GSILEXER.addRule("SPACE", "^[ \t]+", true)
 GSILEXER.addRule("ENTER", "^[\r\n]")
@@ -1661,4 +1674,1004 @@ GSILEXER.addRule("FALSE", "^false(?![A-Za-z0-9_])")
 GSILEXER.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
 GSILEXER.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
 GSILEXER.addRule("NUMBER", "^-?\d+(\.\d+)?")
+// lexer end
+// gsi parser begin
+GSItoken_idx = 0
+GSIidx_stack = []
+GSInode_stack = []
+GSIast_stack = []
+GSItokens = []
+GSIastRelation = function(current_ast, last_ast)
+    if current_ast == null or last_ast == null then
+        return "other"
+    end if
+
+    last_ts = last_ast.type_stack
+    current_ts = current_ast.type_stack
+    if last_ts.len == current_ts.len then
+        for i in last_ts.indexes
+            if last_ts[i] != current_ts[i] then
+                return "other"
+            end if
+        end for
+        if current_ts[-1] == current_ast.type then
+            return "child"
+        else 
+            return "brother"
+        end if
+    else if last_ts.len == current_ts.len - 1 then
+        full_ts = last_ts + [last_ast.type]
+        for i in full_ts.indexes
+            if full_ts[i] != current_ts[i] then
+                return "other"
+            end if
+        end for
+        return "child"
+    else
+        return "other"
+    end if
+end function
+GSIPARSE = function(code_string)
+    tokens = globals.GSILEXER.tokenize(code_string)
+    globals.GSItoken_idx = 0
+    globals.GSIidx_stack = [0]
+    globals.GSInode_stack = []
+    globals.GSIast_stack = []
+    globals.GSItokens = tokens
+    globals.GSInode_stack.push([greyscript])
+
+    while globals.GSInode_stack.len > 0 and globals.GSItoken_idx < globals.GSItokens.len
+        nodes = globals.GSInode_stack[-1]
+        globals.GSItoken_idx = globals.GSIidx_stack[-1]
+
+        if nodes.len <= 0 or nodes[0] == null then
+            globals.GSInode_stack.pop
+            globals.GSIast_stack.pop
+            globals.GSIidx_stack.pop
+            continue
+        end if
+
+        // print globals.GSItoken_idx
+        // print globals.GSItokens[globals.GSItoken_idx]
+        tmp = []
+        for each_nodes in globals.GSInode_stack
+            debug = []
+            for each in each_nodes
+                debug.push(each.type)
+            end for
+            tmp.push(debug)
+        end for
+        // print tmp
+        // print globals.GSIidx_stack
+        // wait(1)
+
+        while nodes.len > 0
+            each_node = nodes.pull
+            func_result = each_node.expand_func()
+            next_node = each_node.next_node
+            type_stack = each_node.type_stack
+            ignore = each_node.ignore
+            // print each_node.type
+            // print "each result:"
+            if typeof(func_result) == "list" then
+                tmp2 = []
+                for each_next_node in func_result
+                    tmp2.push(each_next_node.type)
+                end for
+                // print tmp2
+            else
+                // print func_result
+            end if
+            if typeof(func_result) == "list" then
+                globals.GSInode_stack.push(func_result)
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": [], "ignore": ignore})
+                globals.GSIidx_stack.push(globals.GSItoken_idx)
+                break
+            else if func_result.flag == true then
+                globals.GSInode_stack.push([next_node])
+                result_items = func_result["items"]
+                if func_result.ignore then
+                    result_items = []
+                end if
+                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": result_items, "ignore": ignore})
+                globals.GSIidx_stack.push(globals.GSItoken_idx)
+                break
+            else if func_result.flag == false then
+                globals.GSItoken_idx = globals.GSIidx_stack[-1]
+            end if
+        end while
+        
+    end while
+    if globals.GSItoken_idx == globals.GSItokens.len then
+        // print "YES!"
+        index = globals.GSIast_stack.len - 1
+        while globals.GSIast_stack.len > 1
+            prev_ast = null
+            if index+1 < globals.GSIast_stack.len then
+                prev_ast = globals.GSIast_stack[index-1]
+            end if
+            current_ast = globals.GSIast_stack[index]
+            next_ast = null
+            if index+1 < globals.GSIast_stack.len then
+                next_ast = globals.GSIast_stack[index+1]
+            end if
+            
+            // merge if cureent_ast is leaf
+            prev_relation = globals.GSIastRelation(current_ast, prev_ast)
+            next_relation =  globals.GSIastRelation(next_ast, current_ast)
+            if current_ast.type == "epsilonNode" then
+                globals.GSIast_stack.remove(index)
+            else if prev_relation == "child" and next_relation != "child" then
+                current_ast.remove("type_stack")
+                if current_ast.items.len != 0 then
+                    if current_ast.ignore then
+                        prev_ast.items = prev_ast.items + current_ast.items
+                    else
+                        current_ast.remove("ignore")
+                        prev_ast.items.push(current_ast)
+                    end if
+                end if
+                globals.GSIast_stack.remove(index)
+            else 
+                index = index - 1
+            end if
+        end while
+        ast = globals.GSIast_stack[0]
+        ast.remove("ignore")
+        ast.remove("type_stack")
+        // print toJSON(globals.GSIast_stack[0])
+    end if
+end function
+// start basic function
+requireType = function(types, result_type, ignore)
+    items = []
+    if typeof(types) == "string" then
+        types = [types]
+    end if
+    for each_type in types
+        if globals.GSItoken_idx >= globals.GSItokens.len or globals.GSItokens[globals.GSItoken_idx]["type"] != each_type then
+            return {"flag": false, "type": result_type}
+        end if
+        current_token = globals.GSItokens[globals.GSItoken_idx]
+        each_range = {"start": [current_token["loc"][0], current_token["loc"][1]-current_token["value"].len], "end": current_token["loc"]}
+        items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
+        globals.GSItoken_idx = globals.GSItoken_idx + 1
+    end for
+    // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
+    return {"flag": true, "type": result_type, "items": items, "ignore": ignore}
+end function
+requireValue = function(value, result_type, ignore)
+    items = []
+    if typeof(value) == "string" then
+        value = [value]
+    end if
+    for each_value in value
+        if globals.GSItoken_idx >= globals.GSItokens.len or globals.GSItokens[globals.GSItoken_idx]["value"] != each_value then
+            return {"flag": false, "type": result_type}
+        end if
+        current_token = globals.GSItokens[globals.GSItoken_idx]
+        each_range = {"start": [current_token["loc"][0], current_token["loc"][1]-current_token["value"].len], "end": current_token["loc"]}
+        items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
+        globals.GSItoken_idx = globals.GSItoken_idx + 1
+    end for
+    // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
+    return {"flag": true, "type": result_type, "items": items, "ignore": ignore}
+end function
+// expand_func(): list[GSINode] | {"flag": flag, "type": type, "items": items, "range": range}
+GSINode = {"expand_func": null, "next_node": null, "type_stack": [],"type": null, "ignore": false}
+GSINode.series = function(nodes)
+    result_nodes = []
+    last_node = new nodes[-1]
+    last_node.next_node = self.next_node
+    last_node.type_stack = self.type_stack + [self.type]
+    result_nodes.push(last_node)
+
+    for i in range(nodes.len-2, 0, -1)
+        each_node = new nodes[i]
+        each_node.next_node = result_nodes[-1]
+        each_node.type_stack = self.type_stack + [self.type]
+        result_nodes.push(each_node)
+    end for
+
+    return [result_nodes[-1]]
+end function
+GSINode.parallel = function(nodes)
+    result_nodes = []
+    for i in nodes.indexes
+        each_node = new nodes[i]
+        each_node.next_node = self.next_node
+        each_node.type_stack = self.type_stack + [self.type]
+        result_nodes.push(each_node)
+    end for
+    return result_nodes
+end function
+GSINode.optional = function(node)
+    return self.parallel([node, epsilonNode])
+end function
+// require expand_func_bak
+GSINode.any = function(node)
+    if self.hasIndex("expand_func_bak") then
+        exit("Error: no expand_func_bak for node: " + self.type)
+    end if
+    result_node = new node
+    result_node.next_node_bak = self.next_node
+    result_node.next_node = result_node
+    result_node.type_stack = self.type_stack + [self.type]
+
+    result_node.expand_func = function()
+        tmp_epsilonNode = new epsilonNode
+        tmp_epsilonNode.next_node = result_node.next_node_bak
+        tmp_epsilonNode.type_stack = result_node.type_stack + [result_node.type]
+        return result_node.expand_func_bak + [tmp_epsilonNode]
+    end function
+    return [result_node]
+end function
+
+greyscript = new GSINode
+greyscript.type = "greyscript"
+greyscript.expand_func = function()
+    return self.any(codeBlock)
+end function
+codeBlock = new GSINode
+codeBlock.type = "codeBlock"
+codeBlock.ignore = true
+codeBlock.expand_func_bak = function()
+    return self.parallel([requireEOL, variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, expressionStatement])
+end function
+variableDeclaration = new GSINode
+variableDeclaration.type = "variableDeclaration"
+variableDeclaration.expand_func = function()
+    return self.series([requireIdentifier, requireAssign, objectExpression, requireEOL])
+end function
+// address of expression start
+addressOfExpression = new GSINode
+addressOfExpression.type = "addressOfExpression"
+addressOfExpression.expand_func = function()
+    return self.series([requireAt, objectExpression])
+end function
+// address of expression end
+// expression statement start
+expressionStatement = new GSINode
+expressionStatement.type = "expressionStatement"
+expressionStatement.expand_func = function()
+   return self.series([objectExpression, requireEOL])
+end function
+// expression statement end
+objectExpression = new GSINode
+objectExpression.type = "objectExpression"
+objectExpression.ignore = true
+objectExpression.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, addressOfExpression, listExpression, mapExpression, callExpression, evalExpression, funcExpression, newExpression])
+end function
+evalAtom = new GSINode
+evalAtom.type = "evalAtom"
+evalAtom.ignore = true
+evalAtom.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression, newExpression, callExpression])
+end function
+memberAtom = new GSINode
+memberAtom.type = "memberAtom"
+memberAtom.ignore = true
+memberAtom.expand_func = function()
+   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression])
+end function
+callAtom = new GSINode
+callAtom.type = "memberAtom"
+callAtom.ignore = true
+callAtom.expand_func = function()
+   return self.parallel([requireIdentifier, memberExpression])
+end function
+// list expression start
+listClause = new GSINode
+listClause.type = "listClause"
+listClause.ignore = true
+listClause.expand_func_bak = function
+    return self.series([requireComma, objectExpression])
+end function
+listClauses = new GSINode
+listClauses.type = "listClauses"
+listClauses.ignore = true
+listClauses.expand_func = function
+    return self.any(listClause)
+end function
+listElements = new GSINode
+listElements.type = "listElements"
+listElements.ignore = true
+listElements.expand_func = function()
+   return self.series([objectExpression, listClauses])
+end function
+optListElements = new GSINode
+optListElements.type = "optListElements"
+optListElements.ignore = true
+optListElements.expand_func = function()
+   return self.parallel([listElements, epsilonNodeNoIgnore])
+end function
+listExpression = new GSINode
+listExpression.type = "listExpression"
+listExpression.expand_func = function()
+   return self.series([requireOpenBracket, optListElements, requireCloseBracket])
+end function
+// list expression end
+// map expression start
+mapClause = new GSINode
+mapClause.type = "mapClause"
+mapClause.ignore = true
+mapClause.expand_func_bak = function
+    return self.series([requireComma, pairExpression])
+end function
+mapClauses = new GSINode
+mapClauses.type = "mapClauses"
+mapClauses.ignore = true
+mapClauses.expand_func = function
+    return self.any(mapClause)
+end function
+pairExpression = new GSINode
+pairExpression.type = "pairExpression"
+pairExpression.expand_func = function()
+   return self.series([objectExpression, requireColon, objectExpression])
+end function
+mapElements = new GSINode
+mapElements.type = "mapElements"
+mapElements.ignore = true
+mapElements.expand_func = function()
+   return self.series([pairExpression, mapClauses])
+end function
+optMapElements = new GSINode
+optMapElements.type = "optMapElements"
+optMapElements.ignore = true
+optMapElements.expand_func = function()
+   return self.parallel([mapElements, epsilonNodeNoIgnore])
+end function
+mapExpression = new GSINode
+mapExpression.type = "mapExpression"
+mapExpression.expand_func = function()
+   return self.series([requireOpenBrace, optMapElements, requireCloseBrace])
+end function
+// map expression end
+// reserved string start
+epsilonNode = new GSINode
+epsilonNode.type = "epsilonNode"
+epsilonNode.ignore = true
+epsilonNode.expand_func = function()
+    return {"flag": true, "type": self.type, "range": null, "items": null, "ignore": self.ignore}
+end function
+epsilonNodeNoIgnore = new GSINode
+epsilonNodeNoIgnore.type = "epsilonNodeNoIgnore"
+epsilonNodeNoIgnore.expand_func = function()
+    return {"flag": true, "type": self.type, "range": null, "items": [null], "ignore": self.ignore}
+end function
+requireIdentifier = new GSINode
+requireIdentifier.type = "requireIdentifier"
+requireIdentifier.expand_func = function
+   return requireType("IDENTIFIER", self.type, self.ignore)
+end function
+requireAssign = new GSINode
+requireAssign.type = "requireAssign"
+requireAssign.ignore = true
+requireAssign.expand_func = function()
+   return requireType("ASSIGN", self.type, self.ignore)
+end function
+requireString = new GSINode
+requireString.type = "requireString"
+requireString.expand_func = function()
+   return requireType("STRING", self.type, self.ignore)
+end function
+requireNumber = new GSINode
+requireNumber.type = "requireNumber"
+requireNumber.expand_func = function()
+   return requireType("NUMBER", self.type, self.ignore)
+end function
+requireOpenBracket = new GSINode
+requireOpenBracket.type = "requireOpenBracket"
+requireOpenBracket.ignore = true
+requireOpenBracket.expand_func = function()
+   return requireType("OPEN_BRACKET", self.type, self.ignore)
+end function
+requireCloseBracket = new GSINode
+requireCloseBracket.type = "requireCloseBracket"
+requireCloseBracket.ignore = true
+requireCloseBracket.expand_func = function()
+   return requireType("CLOSE_BRACKET", self.type, self.ignore)
+end function
+requireOpenParen = new GSINode
+requireOpenParen.type = "requireOpenParen"
+requireOpenParen.ignore = true
+requireOpenParen.expand_func = function()
+   return requireType("OPEN_PAREN", self.type, self.ignore)
+end function
+requireCloseParen = new GSINode
+requireCloseParen.type = "requireCloseParen"
+requireCloseParen.ignore = true
+requireCloseParen.expand_func = function()
+   return requireType("CLOSE_PAREN", self.type, self.ignore)
+end function
+requireOpenBrace = new GSINode
+requireOpenBrace.type = "requireOpenBrace"
+requireOpenBrace.ignore = true
+requireOpenBrace.expand_func = function()
+   return requireType("OPEN_BRACE", self.type, self.ignore)
+end function
+requireCloseBrace = new GSINode
+requireCloseBrace.type = "requireCloseBrace"
+requireCloseBrace.ignore = true
+requireCloseBrace.expand_func = function()
+   return requireType("CLOSE_BRACE", self.type, self.ignore)
+end function
+requireComma = new GSINode
+requireComma.type = "requireComma"
+requireComma.ignore = true
+requireComma.expand_func = function()
+   return requireType("COMMA", self.type, self.ignore)
+end function
+requireColon = new GSINode
+requireColon.type = "requireColon"
+requireColon.ignore = true
+requireColon.expand_func = function()
+   return requireType("COLON", self.type, self.ignore)
+end function
+requireDot = new GSINode
+requireDot.type = "requireDot"
+requireDot.ignore = true
+requireDot.expand_func = function()
+   return requireType("DOT", self.type, self.ignore)
+end function
+requireAt = new GSINode
+requireAt.type = "requireAt"
+requireAt.ignore = true
+requireAt.expand_func = function()
+   return requireType("AT", self.type, self.ignore)
+end function
+requireEnter = new GSINode
+requireEnter.type = "requireEnter"
+requireEnter.ignore = true
+requireEnter.expand_func = function()
+   return requireType("ENTER", self.type, self.ignore)
+end function
+requireSemiColon = new GSINode
+requireSemiColon.type = "requireSemiColon"
+requireSemiColon.ignore = true
+requireSemiColon.expand_func = function()
+   return requireType("SEMI_COLON", self.type, self.ignore)
+end function
+requireEOL = new GSINode
+requireEOL.type = "requireEOL"
+requireEOL.ignore = true
+requireEOL.expand_func = function()
+   return self.parallel([requireEnter, requireSemiColon])
+end function
+requireNull = new GSINode
+requireNull.type = "requireNull"
+requireNull.expand_func = function()
+   return requireType("NULL", self.type, self.ignore)
+end function
+requireTrue = new GSINode
+requireTrue.type = "requireTrue"
+requireTrue.expand_func = function()
+   return requireType("TRUE", self.type, self.ignore)
+end function
+requireFalse = new GSINode
+requireFalse.type = "requireFalse"
+requireFalse.expand_func = function()
+   return requireType("FALSE", self.type, self.ignore)
+end function
+requireIf = new GSINode
+requireIf.type = "requireIf"
+requireIf.ignore = true
+requireIf.expand_func = function()
+   return requireType("IF", self.type, self.ignore)
+end function
+requireThen = new GSINode
+requireThen.type = "requireThen"
+requireThen.ignore = true
+requireThen.expand_func = function()
+   return requireType("THEN", self.type, self.ignore)
+end function
+requireElse = new GSINode
+requireElse.type = "requireElse"
+requireElse.ignore = true
+requireElse.expand_func = function()
+   return requireType("ELSE", self.type, self.ignore)
+end function
+requireWhile = new GSINode
+requireWhile.type = "requireWhile"
+requireWhile.ignore = true
+requireWhile.expand_func = function()
+   return requireType("WHILE", self.type, self.ignore)
+end function
+requireFor = new GSINode
+requireFor.type = "requireFor"
+requireFor.ignore = true
+requireFor.expand_func = function()
+   return requireType("FOR", self.type, self.ignore)
+end function
+requireFuncion = new GSINode
+requireFuncion.type = "requireFuncion"
+requireFuncion.ignore = true
+requireFuncion.expand_func = function()
+   return requireType("FUNCTION", self.type, self.ignore)
+end function
+requireNew = new GSINode
+requireNew.type = "requireNew"
+requireNew.ignore = true
+requireNew.expand_func = function()
+   return requireType("NEW", self.type, self.ignore)
+end function
+requireReturn = new GSINode
+requireReturn.type = "requireReturn"
+requireReturn.ignore = true
+requireReturn.expand_func = function()
+   return requireType("RETURN", self.type, self.ignore)
+end function
+requireEnd = new GSINode
+requireEnd.type = "requireEnd"
+requireEnd.ignore = true
+requireEnd.expand_func = function()
+   return requireType("END", self.type, self.ignore)
+end function
+requireIn = new GSINode
+requireIn.type = "requireIn"
+requireIn.ignore = true
+requireIn.expand_func = function()
+   return requireType("IN", self.type, self.ignore)
+end function
+// reserved string end
+// math operator start
+requireStar = new GSINode
+requireStar.type = "requireStar"
+requireStar.expand_func = function()
+   return requireType("STAR", self.type, self.ignore)
+end function
+requireDiv = new GSINode
+requireDiv.type = "requireDiv"
+requireDiv.expand_func = function()
+   return requireType("DIV", self.type, self.ignore)
+end function
+requireMod = new GSINode
+requireMod.type = "requireMod"
+requireMod.expand_func = function()
+   return requireType("MOD", self.type, self.ignore)
+end function
+requireAdd = new GSINode
+requireAdd.type = "requireAdd"
+requireAdd.expand_func = function()
+   return requireType("ADD", self.type, self.ignore)
+end function
+requireMinus = new GSINode
+requireMinus.type = "requireMinus"
+requireMinus.expand_func = function()
+   return requireType("MINUS", self.type, self.ignore)
+end function
+// math operator end
+// logical operator start
+requireEquals = new GSINode
+requireEquals.type = "requireEquals"
+requireEquals.expand_func = function()
+   return requireType("EQUALS", self.type, self.ignore)
+end function
+requireNoteq = new GSINode
+requireNoteq.type = "requireNoteq"
+requireNoteq.expand_func = function()
+   return requireType("NOT_EQ", self.type, self.ignore)
+end function
+requireGteq = new GSINode
+requireGteq.type = "requireGteq"
+requireGteq.expand_func = function()
+   return requireType("GT_EQ", self.type, self.ignore)
+end function
+requireLteq = new GSINode
+requireLteq.type = "requireLteq"
+requireLteq.expand_func = function()
+   return requireType("LT_EQ", self.type, self.ignore)
+end function
+requireGt = new GSINode
+requireGt.type = "requireGt"
+requireGt.expand_func = function()
+   return requireType("GREATER_THAN", self.type, self.ignore)
+end function
+requireLt = new GSINode
+requireLt.type = "requireLt"
+requireLt.expand_func = function()
+   return requireType("LESS_THAN", self.type, self.ignore)
+end function
+requireNot = new GSINode
+requireNot.type = "requireNot"
+requireNot.expand_func = function()
+   return requireType("NOT", self.type, self.ignore)
+end function
+requireAnd = new GSINode
+requireAnd.type = "requireAnd"
+requireAnd.expand_func = function()
+   return requireType("AND", self.type, self.ignore)
+end function
+requireOr = new GSINode
+requireOr.type = "requireOr"
+requireOr.expand_func = function()
+   return requireType("OR", self.type, self.ignore)
+end function
+// logical operator end
+// eval expression start
+optObjectExpression = new GSINode
+optObjectExpression.type = "optObjectExpression"
+optObjectExpression.ignore = true
+optObjectExpression.expand_func = function()
+    return self.parallel([epsilonNodeNoIgnore, objectExpression])
+end function
+pri1EvalExpression = new GSINode
+pri1EvalExpression.type = "pri1EvalExpression"
+pri1EvalExpression.expand_func = function() // ()
+   return self.series([requireOpenParen, optObjectExpression, requireCloseParen])
+end function
+pri2Operator = new GSINode
+pri2Operator.type = "pri2Operator"
+pri2Operator.ignore = true
+pri2Operator.expand_func = function()
+   return self.parallel([requireNot, requireMinus])
+end function
+pri2EvalExpression = new GSINode
+pri2EvalExpression.type = "pri2EvalExpression"
+pri2EvalExpression.expand_func = function() // not + -
+   return self.series([pri2Operator, objectExpression])
+end function
+pri3Operator = new GSINode
+pri3Operator.type = "pri3Operator"
+pri3Operator.ignore = true
+pri3Operator.expand_func = function()
+   return self.parallel([requireStar, requireDiv, requireMod])
+end function
+mdmEvalExpression = new GSINode
+mdmEvalExpression.type = "mdmEvalExpression"
+mdmEvalExpression.expand_func_bak = function()
+    return self.series([pri3Operator, evalAtom])
+end function
+anyMdmEval = new GSINode
+anyMdmEval.type = "anyMdmEval"
+anyMdmEval.ignore = true
+anyMdmEval.expand_func = function()
+    return self.any(mdmEvalExpression)
+end function
+pri3EvalExpression = new GSINode
+pri3EvalExpression.type = "pri3EvalExpression"
+pri3EvalExpression.ignore = true
+pri3EvalExpression.expand_func = function() // * /  %
+   return self.series([evalAtom, anyMdmEval])
+end function
+pri4Operator = new GSINode
+pri4Operator.type = "pri4Operator"
+pri4Operator.ignore = true
+pri4Operator.expand_func = function()
+   return self.parallel([requireAdd, requireMinus])
+end function
+amEvalExpression = new GSINode
+amEvalExpression.type = "amEvalExpression"
+amEvalExpression.expand_func_bak = function() // + -
+   return self.series([pri4Operator, pri3EvalExpression])
+end function
+anyAmEval = new GSINode
+anyAmEval.type = "anyAmEval"
+anyAmEval.ignore = true
+anyAmEval.expand_func = function() // + -
+   return self.any(amEvalExpression)
+end function
+pri4EvalExpression = new GSINode
+pri4EvalExpression.type = "pri4EvalExpression"
+pri4EvalExpression.ignore = true
+pri4EvalExpression.expand_func = function() // + -
+   return self.series([pri3EvalExpression, anyAmEval])
+end function
+pri5Operator = new GSINode
+pri5Operator.type = "pri5Operator"
+pri5Operator.ignore = true
+pri5Operator.expand_func = function()
+   return self.parallel([requireGteq, requireLteq, requireGt, requireLt])
+end function
+compEvalExpression = new GSINode
+compEvalExpression.type = "compEvalExpression"
+compEvalExpression.expand_func_bak = function() // >= <= > <
+   return self.series([pri5Operator, pri4EvalExpression])
+end function
+anyCompEval = new GSINode
+anyCompEval.type = "anyCompEval"
+anyCompEval.ignore = true
+anyCompEval.expand_func = function() // >= <= > <
+   return self.any(compEvalExpression)
+end function
+pri5EvalExpression = new GSINode
+pri5EvalExpression.type = "pri5EvalExpression"
+pri5EvalExpression.ignore = true
+pri5EvalExpression.expand_func = function() // >= <= > <
+   return self.series([pri4EvalExpression, anyCompEval])
+end function
+pri6Operator = new GSINode
+pri6Operator.type = "pri6Operator"
+pri6Operator.ignore = true
+pri6Operator.expand_func = function()
+   return self.parallel([requireEquals, requireNoteq])
+end function
+weqEvalExpression = new GSINode
+weqEvalExpression.type = "weqEvalExpression"
+weqEvalExpression.expand_func_bak = function() // != ==
+   return self.series([pri6Operator, pri5EvalExpression])
+end function
+anyWeqEval = new GSINode
+anyWeqEval.type = "anyWeqEval"
+anyWeqEval.ignore = true
+anyWeqEval.expand_func = function() // != ==
+   return self.any(weqEvalExpression)
+end function
+pri6EvalExpression = new GSINode
+pri6EvalExpression.type = "pri6EvalExpression"
+pri6EvalExpression.ignore = true
+pri6EvalExpression.expand_func = function() // != ==
+   return self.series([pri5EvalExpression, anyWeqEval])
+end function
+andEvalExpression = new GSINode
+andEvalExpression.type = "andEvalExpression"
+andEvalExpression.expand_func_bak = function() // and
+   return self.series([requireAnd, pri6EvalExpression])
+end function
+anyAndEval = new GSINode
+anyAndEval.type = "anyAndEval"
+anyAndEval.ignore = true
+anyAndEval.expand_func = function() // and
+   return self.any(andEvalExpression)
+end function
+pri7EvalExpression = new GSINode
+pri7EvalExpression.type = "pri7EvalExpression"
+pri7EvalExpression.ignore = true
+pri7EvalExpression.expand_func = function() // and
+   return self.series([pri6EvalExpression, anyAndEval])
+end function
+orEvalExpression = new GSINode
+orEvalExpression.type = "orEvalExpression"
+orEvalExpression.expand_func_bak = function() // or
+   return self.series([requireOr, pri7EvalExpression])
+end function
+anyOrEval = new GSINode
+anyOrEval.type = "anyOrEval"
+anyOrEval.ignore = true
+anyOrEval.expand_func = function() // or
+   return self.any(orEvalExpression)
+end function
+pri8EvalExpression = new GSINode
+pri8EvalExpression.type = "pri8EvalExpression"
+pri8EvalExpression.ignore = true
+pri8EvalExpression.expand_func = function() // or
+   return self.series([pri7EvalExpression, anyOrEval])
+end function
+evalExpression = new GSINode
+evalExpression.type = "evalExpression"
+evalExpression.expand_func = function()
+    return self.parallel([pri8EvalExpression])
+end function
+// eval expression end
+// if statement start
+ifStatement = new GSINode
+ifStatement.type = "ifStatement"
+ifStatement.expand_func = function()
+    return self.series([requireIf, evalExpression, requireThen, requireEOL, ifConsequent, anyElifStatement, optElseStatement, requireEnd, requireIf, requireEOL])
+end function
+ifConsequent = new GSINode
+ifConsequent.type = "ifConsequent"
+ifConsequent.expand_func = function()
+    return self.any(codeBlock)
+end function
+ifAlternate = new GSINode
+ifAlternate.type = "ifAlternate"
+ifAlternate.expand_func = function()
+    return self.any(codeBlock)
+end function
+elseStatement = new GSINode
+elseStatement.type = "elseStatement"
+elseStatement.ignore = true
+elseStatement.expand_func = function()
+    return self.series([requireElse, requireEOL, ifAlternate])
+end function
+optElseStatement = new GSINode
+optElseStatement.type = "optElseStatement"
+optElseStatement.ignore = true
+optElseStatement.expand_func = function()
+    return self.optional(elseStatement)
+end function
+elifStatement = new GSINode
+elifStatement.type = "elifStatement"
+elifStatement.expand_func_bak = function()
+    return self.series([requireElse, requireIf, evalExpression, requireThen, requireEOL, ifAlternate])
+end function
+anyElifStatement = new GSINode
+anyElifStatement.type = "anyElifStatement"
+anyElifStatement.ignore = true
+anyElifStatement.expand_func = function()
+    return self.any(elifStatement)
+end function
+// if statement end
+// for statement start
+forCodeBlock = new GSINode
+forCodeBlock.type = "forCodeBlock"
+forCodeBlock.expand_func = function()
+    return self.any(codeBlock)
+end function
+forStatement = new GSINode
+forStatement.type = "forStatement"
+forStatement.expand_func = function()
+    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, requireEOL, forCodeBlock, requireEnd, requireFor, requireEOL])
+end function
+// for statement end
+// while statement start
+whileCodeBlock = new GSINode
+whileCodeBlock.type = "whileCodeBlock"
+whileCodeBlock.expand_func = function()
+    return self.any(codeBlock)
+end function
+whileStatement = new GSINode
+whileStatement.type = "whileStatement"
+whileStatement.expand_func = function()
+    return self.series([requireWhile, evalExpression, requireEOL, whileCodeBlock, requireEnd, requireWhile, requireEOL])
+end function
+// function expression start
+paramAtom = new GSINode
+paramAtom.type = "paramAtom"
+paramAtom.ignore = true
+paramAtom.expand_func = function()
+    return self.parallel([requireString, requireNumber, requireNull, requireTrue, requireFalse])
+end function
+paramDefault = new GSINode
+paramDefault.type = "paramDefault"
+paramDefault.ignore = true
+paramDefault.expand_func = function()
+    return self.series([requireAssign, paramAtom])
+end function
+optParamDefault = new GSINode
+optParamDefault.type = "optParamDefault"
+optParamDefault.ignore = true
+optParamDefault.expand_func = function()
+    return self.optional(paramDefault)
+end function
+funcParam = new GSINode
+funcParam.type = "funcParam"
+funcParam.expand_func = function()
+    return self.series([requireIdentifier, optParamDefault])
+end function
+funcParamClause = new GSINode
+funcParamClause.type = "funcParamClause"
+funcParamClause.ignore = true
+funcParamClause.expand_func_bak = function
+    return self.series([requireComma, funcParam])
+end function
+funcParamClauses = new GSINode
+funcParamClauses.type = "funcParamClauses"
+funcParamClauses.ignore = true
+funcParamClauses.expand_func = function
+    return self.any(funcParamClause)
+end function
+funcParamParen = new GSINode
+funcParamParen.type = "funcParamParen"
+funcParamParen.ignore = true
+funcParamParen.expand_func = function
+    return self.series([funcParam, funcParamClauses])
+end function
+optFuncParamParen = new GSINode
+optFuncParamParen.type = "optFuncParamParen"
+optFuncParamParen.ignore = true
+optFuncParamParen.expand_func = function
+    return self.parallel([epsilonNodeNoIgnore, funcParamParen])
+end function
+funcParams = new GSINode
+funcParams.type = "funcParams"
+funcParams.expand_func = function()
+   return self.series([requireOpenParen, optFuncParamParen, requireCloseParen])
+end function
+optFuncParams = new GSINode
+optFuncParams.type = "optFuncParams"
+optFuncParams.ignore = true
+optFuncParams.expand_func = function()
+   return self.parallel([epsilonNodeNoIgnore, funcParams])
+end function
+funcCodeBlock = new GSINode
+funcCodeBlock.type = "funcCodeBlock"
+funcCodeBlock.expand_func = function()
+    return self.any(codeBlock)
+end function
+funcExpression = new GSINode
+funcExpression.type = "funcExpression"
+funcExpression.expand_func = function()
+    return self.series([requireFuncion, optFuncParams, requireEOL, funcCodeBlock, requireEnd, requireFuncion])
+end function
+// function expression end
+// return statement start
+returnStatement = new GSINode
+returnStatement.type = "returnStatement"
+returnStatement.expand_func = function()
+    return self.series([requireReturn, optObjectExpression, requireEOL])
+end function
+// return statement end
+// call expression start
+callParamClause = new GSINode
+callParamClause.type = "callParamClause"
+callParamClause.ignore = true
+callParamClause.expand_func_bak = function
+    return self.series([requireComma, objectExpression])
+end function
+callParamClauses = new GSINode
+callParamClauses.type = "callParamClauses"
+callParamClauses.ignore = true
+callParamClauses.expand_func = function
+    return self.any(callParamClause)
+end function
+callParamParen = new GSINode
+callParamParen.type = "callParamParen"
+callParamParen.ignore = true
+callParamParen.expand_func = function
+    return self.series([objectExpression, callParamClauses])
+end function
+optCallParamParen = new GSINode
+optCallParamParen.type = "optCallParamParen"
+optCallParamParen.ignore = true
+optCallParamParen.expand_func = function
+    return self.parallel([epsilonNodeNoIgnore, callParamParen])
+end function
+callParamsWithParen = new GSINode
+callParamsWithParen.type = "callParamsWithParen"
+callParamsWithParen.ignore = true
+callParamsWithParen.expand_func = function()
+   return self.series([requireOpenParen, optCallParamParen, requireCloseParen])
+end function
+callParams = new GSINode
+callParams.type = "callParams"
+callParams.expand_func = function()
+   return self.parallel([epsilonNodeNoIgnore, callParamsWithParen])
+end function
+callExpression = new GSINode
+callExpression.type = "callExpression"
+callExpression.expand_func = function()
+    return self.series([callAtom, callParams])
+end function
+// call expression end
+// member expression start
+dotMember = new GSINode
+dotMember.type = "dotMember"
+dotMember.ignore = true
+dotMember.expand_func = function()
+    return self.series([requireDot, requireIdentifier])
+end function
+bracketPair = new GSINode
+bracketPair.type = "bracketPair"
+bracketPair.expand_func = function()
+   return self.series([optObjectExpression, requireColon, optObjectExpression])
+end function
+indexBracketMember = new GSINode
+indexBracketMember.type = "indexBracketMember"
+indexBracketMember.ignore = true
+indexBracketMember.expand_func = function()
+    return self.parallel([objectExpression, bracketPair])
+end function
+bracketMember = new GSINode
+bracketMember.type = "bracketMember"
+bracketMember.ignore = true
+bracketMember.expand_func = function()
+    return self.series([requireOpenBracket, indexBracketMember, requireCloseBracket])
+end function
+dbMember = new GSINode
+dbMember.type = "dbMember"
+dbMember.ignore = true
+dbMember.expand_func_bak = function()
+    return self.parallel([dotMember, bracketMember])
+end function
+anyDbMember = new GSINode
+anyDbMember.type = "anyDbMember"
+anyDbMember.expand_func = function()
+    return self.any(dbMember)
+end function
+memberExpression = new GSINode
+memberExpression.type = "memberExpression"
+memberExpression.expand_func = function()
+    return self.series([memberAtom, anyDbMember])
+end function
+// member expression end
+// new expression start
+newExpression = new GSINode
+newExpression.type = "newExpression"
+newExpression.expand_func = function()
+    return self.series([requireNew, objectExpression])
+end function
+// gsi parser end
 // gsi end

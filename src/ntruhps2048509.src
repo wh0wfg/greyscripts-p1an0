@@ -1,0 +1,69 @@
+isInteger = function(a)
+    if a - floor(a) == 0 then
+        return true
+    else
+        return false
+    end if
+end function
+isByte = function(a)
+    if a >= 0 and a <= 255 and isInteger(a) then
+        return true
+    else
+        return false
+    end if
+end function
+getBit = function(a, index)
+    return bitAnd(bitwise(">>", a, index), 1)
+end function
+setBit = function(a, index, value)
+    if value then
+        return bitOr(a, bitwise("<<", 1, index))
+    else
+        return bitAnd(a, bitNot(bitwise("<<", 1, index)))
+    end if
+end function
+// Performs a bitwise NOT for the provided values. Returns a number
+// only for unsigned char (byte)
+bitNot = function(a)
+    return bitXor(a, 255)
+end function
+
+// ntru.org
+// code from NIST-PQ-Submission-NTRU-20201016\Reference_Implementation\crypto_kem\ntruhps2048509
+//// api.h api_bytes.h begin ////
+CRYPTO_SECRETKEYBYTES = 935
+CRYPTO_PUBLICKEYBYTES = 699
+CRYPTO_CIPHERTEXTBYTES = 699
+CRYPTO_BYTES =  32
+CRYPTO_ALGNAME = "ntruhps2048509"
+
+// unsigned char *pk, unsigned char *sk
+crypto_kem_keypair = function(pk, sk)
+    
+end function
+
+// unsigned char *c, unsigned char *k, const unsigned char *pk
+crypto_kem_enc = function(c, k, pk)
+
+end function
+
+// unsigned char *k, const unsigned char *c, const unsigned char *sk
+crypto_kem_dec = function(k, c, sk)
+
+end function
+//// api.h api_bytes.h end ////
+
+
+//// cmov.c cmov.h begin ////
+// unsigned char *r, const unsigned char *x, size_t len, unsigned char b
+// b = 1 means mov, b = 0 means don't mov
+cmov = function(r, x, comv_len, b)
+    b = bitNot(b) + 1
+
+    for i in range(0, comv_len - 1)
+        // r[i] ^= b & (x[i] ^ r[i]);
+        r = setBit(r, i, bitXor(getBit(r, i), bitAnd(b, bitXor(getBit(x, i), getBit(r, i)))))
+    end for
+end function
+//// cmov.c cmov.h end ////
+
