@@ -1,16 +1,8 @@
 isInteger = function(a)
-    if a - floor(a) == 0 then
-        return true
-    else
-        return false
-    end if
+    return a == floor(a)
 end function
 isByte = function(a)
-    if a >= 0 and a <= 255 and isInteger(a) then
-        return true
-    else
-        return false
-    end if
+    return a >= 0 and a <= 255 and isInteger(a)
 end function
 getBit = function(a, index)
     return bitAnd(bitwise(">>", a, index), 1)
