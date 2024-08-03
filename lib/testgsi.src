@@ -522,7 +522,7 @@ GSIparse = function(gsi_tokens)
                 globals.GSItoken_idx = globals.GSIidx_stack[-1]
             end if
             if SHOW_PARSE_PROGRESS then
-                print "Parse progress: " + str(globals.GSItokens.len)
+                print "Parse progress: " + str(globals.GSItoken_idx / globals.GSItokens.len)
             end if
         end while
         
@@ -674,7 +674,7 @@ end function
 variableDeclaration = new GSINode
 variableDeclaration.type = "variableDeclaration"
 variableDeclaration.expand_func = function()
-    return self.series([requireIdentifier, requireAssign, objectExpression, requireEOL])
+    return self.series([objectExpression, requireAssign, objectExpression, requireEOL])
 end function
 // address of expression start
 addressOfExpression = new GSINode
@@ -706,7 +706,7 @@ memberAtom = new GSINode
 memberAtom.type = "memberAtom"
 memberAtom.ignore = true
 memberAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression])
+   return self.parallel([requireIdentifier, requireString, requireNumber])
 end function
 callAtom = new GSINode
 callAtom.type = "callAtom"
@@ -1384,7 +1384,7 @@ dotMember = new GSINode
 dotMember.type = "dotMember"
 dotMember.ignore = true
 dotMember.expand_func = function()
-    return self.series([requireDot, objectExpression])
+    return self.series([requireDot, callAtom])
 end function
 bracketPair = new GSINode
 bracketPair.type = "bracketPair"
