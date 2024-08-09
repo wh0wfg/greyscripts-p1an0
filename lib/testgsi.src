@@ -1,1437 +1,4719 @@
-// from https://forums.miniscript.org/d/117-a-json-parser-for-and-in-miniscript
-// It doesn't seem to be compatible in the game, I modified the code a little bit
-
-// JSON (JavaScript Object Notation) is a common format for exchanging data
-// between different computers or programs.  See: https://json.org/
-// The data types in JSON are number, string, object, and array, which
-// correspond very neatly to MiniScript's number, string, map, and list.
-//
-// This module provides code to read and write data in JSON format, as well
-// as a couple of utility functions for escaping/unescaping strings and
-// converting numbers to/from hexadecimal.
-
-
-// parse: convert a JSON string into a MiniScript value (which could
-//	include a list or map of other values).  This is the main entry point
-//	for reading JSON data and converting it to native form.
-//	Example: parse("42")		// returns 42
-parse = function(jsonString)
-	p = new Parser
-	return p.parse(jsonString)
+COLOR={}
+COLOR.ERROR="<color=#FF0000>"
+COLOR.EOL="</color>"
+Exception=function(exception)
+return COLOR.ERROR+"[GSI]"+exception+COLOR.EOL
+end function
+ValueError=function(exception)
+    return COLOR.ERROR+"ValueError: "+exception+COLOR.EOL
+end function
+ValueError=function(exception)
+    return COLOR.ERROR+"ValueError: "+exception+COLOR.EOL
+end function
+TypeError=function(exception)
+    return COLOR.ERROR+"TypeError: "+exception+COLOR.EOL
+end function
+__pyInOp__=function(a, b)
+    __type_b = typeof(@b)
+    if not (__type_b == "list" or __type_b == "map" or __type_b =="string") then
+        exit(TypeError("argument of type '"+__type_b+"' is not iterable"))
+    end if
+    if __type_b == "list" then
+        for __v in b
+            if a == __v then
+                return true
+            end if
+        end for
+        return false
+    else if __type_b == "map" then
+        for __v in b
+            if a == __v.key then
+                return true
+            end if
+        end for
+        return false
+    else if __type_b == "string" then
+        return b.indexOf(a) != null
+    end if
+end function
+__pyRange__=function(__start, __end, __inc=1)
+    if __end == null then
+        __end = __start-1
+        __start = 0
+    else
+        if __inc > 0 then
+            __end = __end - 1
+        else
+            __end = __end + 1
+        end if
+    end if
+    if __start < __end and __inc < 0 or __start > __end and __inc > 0 then
+        return []
+    end if
+    return range(__start, __end, __inc)
+end function
+list.append=function(__object)
+    self.push(__object)
+end function
+list.pop=function(__index=-1)
+    __object=self[__index]
+    self.remove(__index)
+    return __object
+end function
+list.clear=function()
+    while self.len > 0
+        self.remove(0)
+    end while
+end function
+string.find=function(__sub, __start)
+    __ret = self.indexOf(__sub, __start)
+    if __ret != null then
+        return __ret
+    else
+        return -1
+    end if
+end function
+string.rfind=function(__sub)
+    for __index in range(0,self.len-1,1)
+        __ret = self.indexOf(__sub, __index)
+        if __ret != null then
+            return __ret
+        end if
+    end for
+    return -1
+end function
+map.keys=function()
+    return self.indexes
+end function
+isinstance=function(a, b)
+    return a isa b
+end function
+float=function(__value)
+    return __value.val
+end function
+int=function(__value)
+    return floor(__value)
 end function
 
-// toJSON: convert a MiniScript value to its JSON representation.
-//	Example: toJSON(42)			// returns "42"
-//
-// Parameters:
-//	value: MiniScript value to convert
-//	compact: if true, omit all unnecessary whitespace
-//	indent: amount to indent if multiple lines are needed
-toJSON = function(value, compact=false, indent=0)
-	if @value isa funcRef then return """<function>"""
-	if value == null then return "null"
-	if value isa number then return str(value)
-	if value isa string then return """" + escape(value) + """"
-	if value isa list then return _listToJSON(value, compact, indent)
-	if value isa map then return _mapToJSON(value, compact, indent)
+
+KeyException=function(key)
+return Exception((("Key Not Found: '"+key)+"' not found in map"))
 end function
-
-// hexToInt: convert a string containing a hexadecimal number.
-//	Supports both uppercase and lowercase for digits A-F.
-//	Example: hexToInt("002A") 	// returns 42
-hexToInt = function(s)
-	result = 0
-	for c in s
-		result = result * 16 + _hexDigitMap[c]
-	end for
-	return result
+KeyException_=function(message)
+return Exception(message)
 end function
-
-// escape: find certain characters (tab, newline, etc.) in the given string,
-// and represent them with backslash sequences.
-//	Example: escape(char(c))	// returns "\t"
-escape = function(s)
-	for i in _escapeIndexes
-		s = s.replace(_escapeFrom[i], _escapeTo[i])
-	end for
-	return s
+CompilerException=function(message)
+return Exception("Compiler Error: "+message)
 end function
-
-// unescape: replace backslash sequences in the given string.
-//	Example: unescape("\t")		// returns char(9)
-unescape = function(s)
-	result = []
-	i = 0
-	maxi = s.len
-	while i < maxi
-		di = 1
-		if s[i] == "\" then
-			di = 2
-			c = s[i+1]
-			if c == "b" then
-				result.push char(8)
-			else if c == "t" then
-				result.push char(9)
-			else if c == "n" then
-				result.push char(10)
-			else if c == "f" then
-				result.push char(12)
-			else if c == "r" then
-				result.push char(13)
-			else if c == "u" then
-				// Unicode code point (must always be 4 digits)
-				hex = s[i+2:i+6]
-				result.push char(hexToInt(hex))
-				di = 6
-			else
-				result.push c
-			end if
-		else
-			result.push s[i]
-		end if
-		i = i + di
-	end while
-	return result.join("")
+CompilerException_=function(context,lineNum,message)
+return Exception("Compiler Error: "+message+" [line "+lineNum+"]"+context)
 end function
-
-//----------------------------------------------------------------------
-// Stuff below is internal implementation; 
-// most users don't need to poke around here.
-
-// Parsing JSON
-
-Parser = {}
-Parser.source = ""
-Parser._sourceLen = 0
-Parser._p = 0		// index of next character to consume in source
-
-Parser.init = function(source)
-	self.source = source
-	self._sourceLen = source.len
+LexerException=function(message)
+return Exception(("Lexer Error: "+message))
 end function
-
-Parser.parse = function(source=null)
-	if source != null then self.init source
-	self._p = 0
-	return self._parseElement
+TypeException=function(message)
+return Exception(message)
 end function
-
-whitespace = " " + char(9) + char(10) + char(13)
-Parser._skipWhitespace = function()
-	while self._p < self._sourceLen
-		c = self.source[self._p]
-		if whitespace.indexOf(c) == null then break
-		self._p = self._p + 1
-	end while
+IndexException=function(message)
+return Exception(message)
 end function
-		
-Parser._parseElement = function()
-	return self._parseValue	// for now!
+RuntimeException=function(message)
+return Exception(("Runtime Error: "+message))
 end function
-
-Parser._parseValue = function()
-	self._skipWhitespace
-	c = self.source[self._p]
-	if c == """" then return self._parseString
-	if "0123456789-.".indexOf(c) != null then return self._parseNumber
-	if c == "[" then return self._parseList
-	if c == "{" then return self._parseMap
-	if c == "t" and self.source[self._p:self._p+4] == "true" then
-		self._p = self._p + 4
-		return true
-	end if
-	if c == "f" and self.source[self._p:self._p+5] == "false" then
-		self._p = self._p + 5
-		return false
-	end if
-	if c == "n" and self.source[self._p:self._p+4] == "null" then
-		self._p = self._p + 4
-		return null
-	end if
+TooManyArgumentsException=function()
+return Exception("Too Many Arguments")
 end function
-
-Parser._parseList = function()
-	self._p = self._p + 1		// skip "["
-	self._skipWhitespace
-	result = []
-	while self._p < self._sourceLen
-		c = self.source[self._p]
-		if c == "]" then break
-		result.push self._parseElement
-		self._skipWhitespace
-		// after an element, we should have either a comma or a ']'
-		c = self.source[self._p]
-		if c == "," then
-			self._p = self._p + 1
-			self._skipWhitespace
-		end if
-	end while
-	self._p = self._p + 1
-	return result
+UnknownOpException=function(message)
+return Exception(message)
 end function
-
-Parser._parseMap = function()
-	self._p = self._p + 1		// skip "{"
-	self._skipWhitespace
-	result = {}
-	while self._p < self._sourceLen
-		// grab the key (must be a string)
-		c = self.source[self._p]
-		if c == "}" then break
-		if c != """" then
-			print "JSON error: object member key must be a string literal"	// ToDo: better error handling!
-			print "Error at position " + self._p + ": " + self.source[self._p-60 : self._p+60]
-			return null
-		end if
-		key = self._parseString
-		self._skipWhitespace
-		
-		// next token must be a colon
-		if self.source[self._p] != ":" then
-			print "JSON error: colon expected"
-			print "Error at position " + self._p + ": " + self.source[self._p-60 : self._p+60]
-			return null
-		end if
-		self._p = self._p + 1
-		self._skipWhitespace
-		
-		// grab the value (could be anything)
-		value = self._parseElement
-		result[key] = value
-		self._skipWhitespace
-		
-		// after a a key/value pair, we should have either a comma or a '}'
-		c = self.source[self._p]
-		if c == "," then
-			self._p = self._p + 1
-			self._skipWhitespace
-		end if
-	end while
-	self._p = self._p + 1
-	return result
+LimitExceededException=function(message)
+return Exception(message)
 end function
-
-// Get a string literal from the source.  Advance to the next
-// character after the closing quote.
-Parser._parseString = function()
-	self._p = self._p + 1
-	startPos = self._p
-	anyEscape = false
-	while self._p < self._sourceLen
-		c = self.source[self._p]
-		self._p = self._p + 1
-		if c == """" then break
-		if c == "\" then
-			anyEscape = true
-			self._p = self._p + 1
-		end if
-	end while
-	result = self.source[startPos : self._p-1]
-	if anyEscape then result = unescape(result)
-	return result
+UndefinedIdentifierException=function(ident)
+return Exception((("Undefined Identifier: '"+ident)+"' is unknown in this context"))
 end function
-
-// Get a numeric literal from the source.  Advance to the next
-// character after the number.
-Parser._parseNumber = function()
-	startPos = self._p
-	while self._p < self._sourceLen
-		c = self.source[self._p]
-		// Note that we are rather permissive here, consuming things like
-		// 1-2e5+4E7, which is not valid JSON.  But we're not trying to be
-		// a JSON validator; we're just trying to grok valid JSON as quickly
-		// as we can.
-		if "0123456789+-.eE".indexOf(c) == null then break
-		self._p = self._p + 1
-	end while
-	result = val(self.source[startPos : self._p])
-	return result
+UndefinedLocalException=function(ident)
+return Exception((("Undefined Local Identifier: '"+ident)+"' is unknown in this context"))
 end function
-
-// Generating JSON
-
-_listToJSON = function(lst, compact, indent)
-	ws = (_eol + "  "*(indent+1)) * (not compact)
-	parts = ["[", ws]
-	first = true
-	for item in lst
-		if not first then
-			parts.push ","
-			parts.push ws
-		end if
-		parts.push toJSON(item, compact, indent+1)
-		first = false
-	end for
-	if not compact then parts.push _eol + "  " * indent
-	parts.push "]"
-	return join(parts, "")
+Type={}
+Type.Unknown="Unknown"
+Type.Keyword="Keyword"
+Type.Number="Number"
+Type.String="String"
+Type.Identifier="Identifier"
+Type.OpAssign="OpAssign"
+Type.OpPlus="OpPlus"
+Type.OpMinus="OpMinus"
+Type.OpTimes="OpTimes"
+Type.OpDivide="OpDivide"
+Type.OpMod="OpMod"
+Type.OpPower="OpPower"
+Type.OpEqual="OpEqual"
+Type.OpNotEqual="OpNotEqual"
+Type.OpGreater="OpGreater"
+Type.OpGreatEqual="OpGreatEqual"
+Type.OpLesser="OpLesser"
+Type.OpLessEqual="OpLessEqual"
+Type.OpAssignPlus="OpAssignPlus"
+Type.OpAssignMinus="OpAssignMinus"
+Type.OpAssignTimes="OpAssignTimes"
+Type.OpAssignDivide="OpAssignDivide"
+Type.OpAssignMod="OpAssignMod"
+Type.OpAssignPower="OpAssignPower"
+Type.LParen="LParen"
+Type.RParen="RParen"
+Type.LSquare="LSquare"
+Type.RSquare="RSquare"
+Type.LCurly="LCurly"
+Type.RCurly="RCurly"
+Type.AddressOf="AddressOf"
+Type.Comma="Comma"
+Type.Dot="Dot"
+Type.Colon="Colon"
+Type.Comment="Comment"
+Type.EOL="EOL"
+Token={}
+Token.__init__=function(token_type,text)
+__result__ = new Token
+__result__.type=token_type
+__result__.text=text
+__result__.afterSpace=false
+return __result__
 end function
-
-_mapToJSON = function(lst, compact, indent)
-	ws = (_eol + "  "*(indent+1)) * (not compact)
-	parts = ["{", ws]
-	first = true
-	for kv in lst
-		if not first then
-			parts.push ","
-			parts.push ws
-		end if
-		parts.push toJSON(str(kv.key))
-		parts.push ":"
-		if not compact then parts.push " "
-		parts.push toJSON(@kv.value, compact, indent+1)
-		first = false
-	end for
-	if not compact then parts.push _eol + "  " * indent
-	parts.push "}"
-	return join(parts, "")
+Token.__str__=function()
+if self.text == null then
+return self.type
+end if
+return self.type+"("+self.text+")"
 end function
+Token.EOL=null
+Keywords={}
+Keywords.all=["break","continue","else","end","for","function","if","in","isa","new","null","then","repeat","return","while","and","or","not","true","false"]
+Keywords.IsKeyword=function(text)
+return __pyInOp__(text,Keywords.all)
+end function
+Lexer={}
+Lexer.__init__=function(token_input)
+__result__ = new Lexer
+__result__.lineNum=1
+__result__.position=0
+__result__.input=token_input
+__result__.inputLength=len(token_input)
+__result__.pending=[]
+return __result__
+end function
+Lexer.AtEnd=function()
+return (self.position >= self.inputLength and len(self.pending) == 0)
+end function
+Lexer.Peek=function()
+if len(self.pending) == 0 then
+if self.AtEnd() then
+return Token.EOL
+end if
+self.pending.append(self.Dequeue())
+end if
+return self.pending[0]
+end function
+Lexer.Dequeue=function()
+if len(self.pending) > 0 then
+return self.pending.pop(0)
+end if
+oldPos=self.position
+self.SkipWhitespaceAndComment()
+if self.AtEnd() then
+return Token.EOL
+end if
+result=Token.__init__(Type.Unknown,null)
+result.afterSpace=self.position > oldPos
+startPos=self.position
+c=self.input[self.position]
+self.position=self.position+1
+if not self.AtEnd() then
+c2=self.input[self.position]
+if c2 == "=" then
+if c == "=" then
+result.type=Type.OpEqual
+else if c == "+" then
+result.type=Type.OpAssignPlus
+else if c == "-" then
+result.type=Type.OpAssignMinus
+else if c == "*" then
+result.type=Type.OpAssignTimes
+else if c == "/" then
+result.type=Type.OpAssignDivide
+else if c == "%" then
+result.type=Type.OpAssignMod
+else if c == "^" then
+result.type=Type.OpAssignPower
 
-// General utility data structures
+end if
+end if
+if (c == "!" and c2 == "=") then
+result.type=Type.OpNotEqual
+end if
+if (c == ">" and c2 == "=") then
+result.type=Type.OpGreatEqual
+end if
+if (c == "<" and c2 == "=") then
+result.type=Type.OpLessEqual
+end if
+if result.type != Type.Unknown then
+self.position=self.position+1
+return result
+end if
+end if
+if c == "+" then
+result.type=Type.OpPlus
+else if c == "-" then
+result.type=Type.OpMinus
+else if c == "*" then
+result.type=Type.OpTimes
+else if c == "/" then
+result.type=Type.OpDivide
+else if c == "%" then
+result.type=Type.OpMod
+else if c == "^" then
+result.type=Type.OpPower
+else if c == "(" then
+result.type=Type.LParen
+else if c == ")" then
+result.type=Type.RParen
+else if c == "[" then
+result.type=Type.LSquare
+else if c == "]" then
+result.type=Type.RSquare
+else if c == "{" then
+result.type=Type.LCurly
+else if c == "}" then
+result.type=Type.RCurly
+else if c == "," then
+result.type=Type.Comma
+else if c == ":" then
+result.type=Type.Colon
+else if c == "=" then
+result.type=Type.OpAssign
+else if c == "<" then
+result.type=Type.OpLesser
+else if c == ">" then
+result.type=Type.OpGreater
+else if c == "@" then
+result.type=Type.AddressOf
+else if (c == ";" or c == ""+char(10)+"") then
+result.type=Type.EOL
+if c == ";" then
+result.text=";"
+else
+result.text=""+char(10)+""
+end if
+if c != ";" then
+self.lineNum=self.lineNum+1
+end if
+else if c == ""+char(13)+"" then
+result.type=Type.EOL
+if (self.position < self.inputLength and self.input[self.position] == ""+char(10)+"") then
+self.position=self.position+1
+result.text=""+char(13)+""+char(10)+""
+else
+result.text=""+char(13)+""
+end if
+self.lineNum=self.lineNum+1
 
-_eol = char(13)
-_hexDigitMap = {}
-for i in range(0,15)
-	if i < 10 then
-		_hexDigitMap[str(i)] = i
-	else
-		_hexDigitMap[char(55+i)] = i	// (lowercase hex digit)
-		_hexDigitMap[char(87+i)] = i	// (uppercase hex digit)
-	end if
+end if
+if result.type != Type.Unknown then
+return result
+end if
+if c == "." then
+if (self.position >= self.inputLength or not self.IsNumeric(self.input[self.position])) then
+result.type=Type.Dot
+return result
+end if
+end if
+if (c == "." or self.IsNumeric(c)) then
+result.type=Type.Number
+while self.position < self.inputLength
+lastc=c
+c=self.input[self.position]
+if (self.IsNumeric(c) or c == "." or c == "E" or c == "e" or ((c == "-" or c == "+") and (lastc == "E" or lastc == "e"))) then
+self.position=self.position+1
+else
+break
+end if
+end while
+else if self.IsIdentifier(c) then
+while self.position < self.inputLength
+if self.IsIdentifier(self.input[self.position]) then
+self.position=self.position+1
+else
+break
+end if
+end while
+result.text=self.input[startPos:self.position]
+if Keywords.IsKeyword(result.text) then
+result.type=Type.Keyword
+else
+result.type=Type.Identifier
+end if
+if result.text == "end" then
+nextWord=self.Dequeue()
+if (nextWord != null and nextWord.type == Type.Keyword) then
+result.text=((result.text+" ")+nextWord.text)
+else
+exit(LexerException("'end' without following keyword ('if', 'function', etc.)"))
+end if
+else if result.text == "else" then
+p=self.position
+while (p < self.inputLength and (self.input[p] == " " or self.input[p] == ""+char(9)+""))
+p=p+1
+end while
+if ((p+1) < self.inputLength and self.input[p:(p+2)] == "if" and ((p+2) >= self.inputLength or not self.IsIdentifier(self.input[(p+2)]))) then
+result.text="else if"
+self.position=(p+2)
+end if
+
+end if
+return result
+else if c == """" then
+result.type=Type.String
+haveDoubledQuotes=false
+startPos=self.position
+gotEndQuote=false
+while self.position < self.inputLength
+c=self.input[self.position]
+self.position=self.position+1
+if c == """" then
+if (self.position < self.inputLength and self.input[self.position] == """") then
+haveDoubledQuotes=true
+self.position=self.position+1
+else
+gotEndQuote=true
+break
+end if
+else if (c == ""+char(10)+"" or c == ""+char(13)+"") then
+break
+
+end if
+end while
+if not gotEndQuote then
+exit(LexerException("missing closing quote ("")"))
+end if
+result.text=self.input[startPos:(self.position-1)]
+if haveDoubledQuotes then
+result.text=result.text.replace("""""","""")
+end if
+return result
+else
+result.type=Type.Unknown
+end if
+result.text=self.input[startPos:self.position]
+return result
+end function
+Lexer.SkipWhitespaceAndComment=function()
+while (not self.AtEnd() and self.IsWhitespace(self.input[self.position]))
+self.position=self.position+1
+end while
+if (self.position < (self.inputLength-1) and self.input[self.position] == "/" and self.input[(self.position+1)] == "/") then
+self.position=self.position+2
+while (not self.AtEnd() and self.input[self.position] != ""+char(10)+"")
+self.position=self.position+1
+end while
+end if
+end function
+Lexer.IsNumeric=function(c)
+return "0" <= c <= "9"
+end function
+Lexer.IsIdentifier=function(c)
+return (c == "_" or "a" <= c <= "z" or "A" <= c <= "Z" or "0" <= c <= "9")
+end function
+Lexer.IsWhitespace=function(c)
+return (c == " " or c == ""+char(9)+"")
+end function
+Lexer.IsAtWhitespace=function()
+return (self.AtEnd() or self.IsWhitespace(self.input[self.position]))
+end function
+Lexer.IsInStringLiteral=function(charPos,source,startPos)
+inString=false
+for i in __pyRange__(startPos,charPos)
+if source[i] == """" then
+inString=not inString
+end if
+end for
+return inString
+end function
+Lexer.commentStartPos=function(source,start_pos)
+comment_start=(start_pos-2)
+while true
+comment_start=source.find("//",(comment_start+2))
+if comment_start < 0 then
+break
+end if
+if not Lexer.IsInStringLiteral(comment_start,source,start_pos) then
+break
+end if
+end while
+return comment_start
+end function
+Lexer.TrimComment=function(source)
+start_pos=(source.rfind(""+char(10)+"")+1)
+comment_start=Lexer.commentStartPos(source,start_pos)
+if comment_start >= 0 then
+return source[start_pos:comment_start]
+end if
+return source
+end function
+Lexer.LastToken=function(source)
+startPos=(source.rfind(""+char(10)+"")+1)
+commentStart=Lexer.commentStartPos(source,startPos)
+if commentStart >= 0 then
+endPos=(commentStart-1)
+else
+endPos=(len(source)-1)
+end if
+while (endPos >= 0 and Lexer.IsWhitespace(source[endPos]))
+endPos=endPos-1
+end while
+if endPos < 0 then
+return Token.EOL
+end if
+tokStart=endPos
+c=source[endPos]
+if Lexer.IsIdentifier(c) then
+while (tokStart > startPos and Lexer.IsIdentifier(source[(tokStart-1)]))
+tokStart=tokStart-1
+end while
+else if c == """" then
+inQuote=true
+while tokStart > startPos
+tokStart=tokStart-1
+if source[tokStart] == """" then
+inQuote=not inQuote
+if (not inQuote and tokStart > startPos and source[(tokStart-1)] != """") then
+break
+end if
+end if
+end while
+else if (c == "=" and tokStart > startPos) then
+c2=source[(tokStart-1)]
+if __pyInOp__(c2,["><=!"]) then
+tokStart=tokStart-1
+end if
+
+end if
+lex=Lexer.__init__(source)
+lex.position=tokStart
+return lex.Dequeue()
+end function
+Lexer.Check=function(tok,type_,text,line_num)
+if tok == null then
+exit(ValueError("Token is None"))
+end if
+if tok.type != type_ then
+exit(ValueError("Token type: expected "+type_+", but got "+tok.type))
+end if
+if (text != null and tok.text != text) then
+exit(ValueError("Token text: expected "+text+", but got "+tok.text))
+end if
+end function
+Lexer.CheckLineNum=function(actual,expected)
+if actual != expected then
+exit(ValueError("Lexer line number: expected "+expected+", but got "+actual))
+end if
+end function
+Lexer.RunUnitTests=function()
+lex=Lexer.__init__("42  * 3.14158")
+Lexer.Check(lex.Dequeue(),Type.Number,"42",0)
+Lexer.CheckLineNum(lex.lineNum,1)
+Lexer.Check(lex.Dequeue(),Type.OpTimes,null,0)
+Lexer.Check(lex.Dequeue(),Type.Number,"3.14158",0)
+if not lex.AtEnd() then
+exit(ValueError("AtEnd not set when it should be"))
+end if
+Lexer.CheckLineNum(lex.lineNum,1)
+lex=Lexer.__init__("6*(.1-foo) end if // and a comment!")
+Lexer.Check(lex.Dequeue(),Type.Number,"6",0)
+Lexer.CheckLineNum(lex.lineNum,1)
+Lexer.Check(lex.Dequeue(),Type.OpTimes,null,0)
+Lexer.Check(lex.Dequeue(),Type.LParen,null,0)
+Lexer.Check(lex.Dequeue(),Type.Number,".1",0)
+Lexer.Check(lex.Dequeue(),Type.OpMinus,null,0)
+Lexer.Check(lex.Peek(),Type.Identifier,"foo",0)
+Lexer.Check(lex.Peek(),Type.Identifier,"foo",0)
+Lexer.Check(lex.Dequeue(),Type.Identifier,"foo",0)
+Lexer.Check(lex.Dequeue(),Type.RParen,null,0)
+Lexer.Check(lex.Dequeue(),Type.Keyword,"end if",0)
+Lexer.Check(lex.Dequeue(),Type.EOL,null,0)
+if not lex.AtEnd() then
+exit(ValueError("AtEnd not set when it should be"))
+end if
+Lexer.CheckLineNum(lex.lineNum,1)
+lex=Lexer.__init__("""foo"" ""isn't """"real"""""" ""now """""""" double!""")
+Lexer.Check(lex.Dequeue(),Type.String,"foo",0)
+Lexer.Check(lex.Dequeue(),Type.String,"isn't ""real""",0)
+Lexer.Check(lex.Dequeue(),Type.String,"now """" double!",0)
+if not lex.AtEnd() then
+exit(ValueError("AtEnd not set when it should be"))
+end if
+lex=Lexer.__init__("foo"+char(10)+"bar"+char(13)+"baz"+char(13)+""+char(10)+"bamf")
+Lexer.Check(lex.Dequeue(),Type.Identifier,"foo",0)
+Lexer.CheckLineNum(lex.lineNum,1)
+Lexer.Check(lex.Dequeue(),Type.EOL,null,0)
+Lexer.Check(lex.Dequeue(),Type.Identifier,"bar",0)
+Lexer.CheckLineNum(lex.lineNum,2)
+Lexer.Check(lex.Dequeue(),Type.EOL,null,0)
+Lexer.Check(lex.Dequeue(),Type.Identifier,"baz",0)
+Lexer.CheckLineNum(lex.lineNum,3)
+Lexer.Check(lex.Dequeue(),Type.EOL,null,0)
+Lexer.Check(lex.Dequeue(),Type.Identifier,"bamf",0)
+Lexer.CheckLineNum(lex.lineNum,4)
+Lexer.Check(lex.Dequeue(),Type.EOL,null,0)
+if not lex.AtEnd() then
+exit(ValueError("AtEnd not set when it should be"))
+end if
+lex=Lexer.__init__("x += 42")
+Lexer.Check(lex.Dequeue(),Type.Identifier,"x",0)
+Lexer.CheckLineNum(lex.lineNum,1)
+Lexer.Check(lex.Dequeue(),Type.OpAssignPlus,null,0)
+Lexer.Check(lex.Dequeue(),Type.Number,"42",0)
+if not lex.AtEnd() then
+exit(ValueError("AtEnd not set when it should be"))
+end if
+Lexer.Check(Lexer.LastToken("x=42 // foo"),Type.Number,"42",0)
+Lexer.Check(Lexer.LastToken("x = [1, 2, // foo"),Type.Comma,null,0)
+Lexer.Check(Lexer.LastToken("x = [1, 2 // foo"),Type.Number,"2",0)
+Lexer.Check(Lexer.LastToken("x = [1, 2 // foo // and ""more"" foo"),Type.Number,"2",0)
+Lexer.Check(Lexer.LastToken("x = [""foo"", ""//bar""]"),Type.RSquare,null,0)
+Lexer.Check(Lexer.LastToken("print 1 // line 1"+char(10)+"print 2"),Type.Number,"2",0)
+Lexer.Check(Lexer.LastToken("print ""Hi""""Quote"" // foo bar"),Type.String,"Hi""Quote",0)
+end function
+Token.EOL=Token.__init__(Type.EOL,null)
+SourceLoc={}
+SourceLoc.__init__=function(context,lineNum)
+__result__ = new SourceLoc
+__result__.context=context
+__result__.lineNum=lineNum
+return __result__
+end function
+SourceLoc.__str__=function()
+if self.context then
+contextStr=self.context+" "
+else
+contextStr=""
+end if
+return "["+contextStr+"line "+self.lineNum+"]"
+end function
+Param={}
+Param.__init__=function(name,defaultValue)
+__result__ = new Param
+__result__.name=name
+__result__.defaultValue=defaultValue
+return __result__
+end function
+ValuePair={}
+ValuePair.__init__=function(a,b)
+__result__ = new ValuePair
+__result__.a=a
+__result__.b=b
+return __result__
+end function
+ValuePair.Equals=function(other)
+if isinstance(other,ValuePair) then
+return (self.a == other.a and self.b == other.b)
+end if
+return false
+end function
+Value={}
+Value.Hash=function()
+return hash(self)
+end function
+Value.DoubleValue=function()
+return 0
+end function
+Value.CanSetElem=function()
+return false
+end function
+Value.CodeForm=function(recursionLimit)
+return self.__str__()
+end function
+Value.CodeForm_=function(vm,recursionLimit)
+return self.ToString(vm)
+end function
+Value.ToString=function(vm)
+return self.__str__()
+end function
+Value.val_=function(context)
+return self
+end function
+Value.Val_=function(context)
+return [self,null]
+end function
+Value.RecursiveEqual=function(rhs)
+toDo=[]
+visited=[]
+toDo.append(ValuePair.__init__(self,rhs))
+while len(toDo) > 0
+pair=toDo.pop()
+visited.append(pair)
+if isinstance(pair.a,ValList) then
+listA=pair.a
+if isinstance(pair.b,ValList) then
+listB=pair.b
+else
+listB=null
+end if
+if listB == null then
+return false
+end if
+if listA == listB then
+continue
+end if
+aCount=len(listA.values)
+if aCount != len(listB.values) then
+return false
+end if
+for i in __pyRange__(aCount)
+newPair=ValuePair.__init__(listA.values[i],listB.values[i])
+if __pyNotInOp__(newPair,visited) then
+toDo.append(newPair)
+end if
+end for
+else if isinstance(pair.a,ValMap) then
+mapA=pair.a
+if isinstance(pair.b,ValMap) then
+mapB=pair.b
+else
+mapB=null
+end if
+if mapB == null then
+return false
+end if
+if mapA == mapB then
+continue
+end if
+if len(mapA.map_) != len(mapB.map_) then
+return false
+end if
+for _key in mapA.map_
+_result=mapB.TryGetValue_(_key)
+if _result[0] == false then
+return false
+end if
+valFromB=_result[1]
+valFromA=mapA.map_[_key]
+newPair=ValuePair.__init__(valFromA,valFromB)
+if __pyNotInOp__(newPair,visited) then
+toDo.append(newPair)
+end if
+end for
+else if (pair.a == null or pair.b == null) then
+if (pair.a != null or pair.b != null) then
+return false
+end if
+else if pair.a.Equality(pair.b) == 0 then
+return false
+
+end if
+end while
+return true
+end function
+LocalOnlyMode={}
+LocalOnlyMode.Off=0
+LocalOnlyMode.Warn=1
+LocalOnlyMode.Strict=2
+ValVar=new Value
+ValVar.implicitResult=null
+ValVar.self_=null
+ValVar.__init__=function(identifier)
+__result__ = new ValVar
+__result__.identifier=identifier
+__result__.noInvoke=false
+__result__.localOnly=LocalOnlyMode.Off
+return __result__
+end function
+ValVar.__str__=function()
+if self.noInvoke then
+return ("@"+self.identifier)
+end if
+return self.identifier
+end function
+ValVar.Equality=function(rhs)
+if (isinstance(rhs,ValVar) and rhs.identifier == self.identifier) then
+return 1
+else
+return 0
+end if
+end function
+ValVar.val_=function(context)
+if self == self.self_ then
+return context.self_
+end if
+return context.GetVar(self.identifier,LocalOnlyMode.Off)
+end function
+ValVar.Val_=function(context)
+if self == self.self_ then
+return context.self_
+end if
+return [context.GetVar(self.identifier,self.localOnly),null]
+end function
+ValVar.implicitResult=ValVar.__init__("_")
+ValVar.self_=ValVar.__init__("self")
+ValSeqElem=new Value
+ValSeqElem.__init__=function(sequence,index)
+__result__ = new ValSeqElem
+__result__.sequence=sequence
+__result__.index=index
+__result__.noInvoke=false
+return __result__
+end function
+ValSeqElem.__str__=function()
+if self.noInvoke then
+return "'@'"+self.sequence.__str__()+"["+self.index.__str__()+"]"
+else
+return self.sequence.__str__()+"["+self.index.__str__()+"]"
+end if
+end function
+ValSeqElem.Equality=function(rhs)
+if (isinstance(rhs,ValSeqElem) and rhs.sequence == self.sequence and rhs.index == self.index) then
+return 1
+else
+return 0
+end if
+end function
+ValSeqElem.ToString=function(vm)
+return self.__str__()
+end function
+ValSeqElem.val_=function(context)
+return self.Val_(context)[0]
+end function
+ValSeqElem.Val_=function(context)
+baseSeq=self.sequence
+if self.sequence == ValVar.self_ then
+baseSeq=context.self_
+if baseSeq == null then
+exit(UndefinedIdentifierException("self"))
+end if
+end if
+valueFoundIn=null
+if self.index == null then
+idxVal=null
+else
+idxVal=self.index.val_(context)
+end if
+if isinstance(idxVal,ValString) then
+return self.Resolve(baseSeq,idxVal.value,context)
+end if
+baseVal=baseSeq.val_(context)
+if isinstance(baseVal,ValMap) then
+_result=baseVal.Lookup_(idxVal)
+result=_result[0]
+valueFoundIn=_result[1]
+if valueFoundIn == null then
+if idxVal == null then
+exit(KeyException("null"))
+else
+exit(KeyException(idxVal.CodeForm(context.vm,1)))
+end if
+end if
+return [result,valueFoundIn]
+else if isinstance(baseVal,ValList) then
+return [baseVal.GetElem(idxVal),valueFoundIn]
+else if isinstance(baseVal,ValString) then
+return [baseVal.GetElem(idxVal),valueFoundIn]
+else if baseVal == null then
+exit(TypeException("Null Reference Exception: can't index into null"))
+
+end if
+exit(TypeException("Type Exception: can't index into this type"))
+end function
+ValSeqElem.Resolve=function(sequence,identifier,context)
+includeMapType=true
+loopsLeft=ValMap.maxIsaDepth
+while sequence != null
+if (isinstance(sequence,ValTemp) or isinstance(sequence,ValVar)) then
+sequence=sequence.val_(context)
+end if
+if isinstance(sequence,ValMap) then
+idVal=TempValString.Get(identifier)
+found=sequence.TryGetValue_(idVal)
+TempValString.Release(idVal)
+if found[0] then
+return [found[1],sequence]
+end if
+if loopsLeft < 0 then
+exit(LimitExceededException("__isa depth exceeded (perhaps a reference loop?)"))
+end if
+_result=sequence.TryGetValue_(ValString.magicIsA)
+if not _result[0] then
+if not includeMapType then
+exit(KeyException(identifier))
+end if
+if context.vm.mapType != null then
+sequence=context.vm.mapType
+else
+sequence=Intrinsics.MapType()
+end if
+includeMapType=false
+end if
+else if isinstance(sequence,ValList) then
+if context.vm.listType != null then
+sequence=context.vm.listType
+else
+sequence=Intrinsics.ListType()
+end if
+includeMapType=false
+else if isinstance(sequence,ValString) then
+if context.vm.stringType != null then
+sequence=context.vm.stringType
+else
+sequence=Intrinsics.StringType()
+end if
+includeMapType=false
+else if isinstance(sequence,ValNumber) then
+if context.vm.numberType != null then
+sequence=context.vm.numberType
+else
+sequence=Intrinsics.NumberType()
+end if
+includeMapType=false
+else if isinstance(sequence,ValFunction) then
+if context.vm.functionType != null then
+sequence=context.vm.functionType
+else
+sequence=Intrinsics.FunctionType()
+end if
+includeMapType=false
+else
+exit(TypeException("Type Error (while attempting to look up "+identifier+")"))
+end if
+loopsLeft=loopsLeft-1
+end while
+return [null,null]
+end function
+ValList=new Value
+ValList.maxSize=16777215
+ValList.__init__=function(values)
+__result__ = new ValList
+__result__.assignOverride=null
+_values=values
+if values == null then
+_values=[]
+end if
+__result__.values=_values
+return __result__
+end function
+ValList.BoolValue=function()
+return (self.values != null and len(self.values) > 0)
+end function
+ValList.ToString=function(vm)
+return self.CodeForm_(vm,3)
+end function
+ValList.CodeForm_=function(vm,recursionLimit)
+if recursionLimit == 0 then
+return "[...]"
+end if
+if (recursionLimit > 0 and recursionLimit < 3 and vm != null) then
+shortName=vm.FindShortName(self)
+if shortName != null then
+return shortName
+end if
+end if
+strs=[]
+for value in self.values
+if value == null then
+strs.append("null")
+else
+strs.append(value.CodeForm_(vm,(recursionLimit-1)))
+end if
+end for
+if len(strs) > 0 then
+_strs=strs[0]
+for _str in strs[1:]
+_strs=_strs+(", "+_str)
+end for
+else
+_strs=""
+end if
+return (("["+_strs)+"]")
+end function
+ValList.CanSetElem=function()
+return true
+end function
+ValList.SetElem=function(index,value)
+i=index.IntValue()
+if i < 0 then
+i=i+len(self.values)
+end if
+if (i < 0 or i >= len(self.values)) then
+exit(IndexException("Index Error (list index "+index+" out of range)"))
+end if
+self.values[i]=value
+end function
+ValList.CodeForm=function(recursionLimit)
+if recursionLimit == 0 then
+return "[...]"
+end if
+strs=[]
+for value in self.values
+if value == null then
+strs.append("null")
+else
+strs.append(value.CodeForm((recursionLimit-1)))
+end if
+end for
+if len(strs) > 0 then
+_strs=strs[0]
+for _str in strs[1:]
+_strs=_strs+(", "+_str)
+end for
+else
+_strs=""
+end if
+return (("["+_strs)+"]")
+end function
+ValList.__str__=function()
+return self.CodeForm(3)
+end function
+ValList.EvalCopy=function(context)
+result=ValList.__init__()
+for value in self.values
+if value == null then
+result.values.append(null)
+else
+result.values.append(value.val_(context))
+end if
+end for
+return result
+end function
+ValList.GetElem=function(index)
+if not isinstance(index,ValNumber) then
+exit(KeyException_("List index must be numeric"))
+end if
+i=index.IntValue()
+if i < 0 then
+i=i+len(self.values)
+end if
+if (i < 0 or i >= len(self.values)) then
+exit(IndexException((("Index Error (list index "+index.__str__())+" out of range)")))
+end if
+return self.values[i]
+end function
+ValList.Equality=function(rhs)
+if not isinstance(rhs,ValList) then
+return 0
+end if
+rhl=rhs.values
+if rhl == self.values then
+return 1
+end if
+count=len(self.values)
+if count != len(rhl) then
+return 0
+end if
+if self.RecursiveEqual(rhs) then
+return 1
+else
+return 0
+end if
+end function
+ValList.IsA=function(type_,vm)
+if type_ == null then
+return false
+end if
+return type_ == vm.listType
+end function
+ValNumber=new Value
+ValNumber._zero=null
+ValNumber._one=null
+ValNumber.__init__=function(value)
+__result__ = new ValNumber
+__result__.value=value
+return __result__
+end function
+ValNumber.__str__=function()
+return str(self.value)
+end function
+ValNumber.Equality=function(rhs)
+if (isinstance(rhs,ValNumber) and rhs.value == self.value) then
+return 1
+else
+return 0
+end if
+end function
+ValNumber.IntValue=function()
+return self.value
+end function
+ValNumber.DoubleValue=function()
+return self.value
+end function
+ValNumber.zero=function()
+return ValNumber._zero
+end function
+ValNumber.one=function()
+return ValNumber._one
+end function
+ValNumber.Truth=function(truthValue)
+if truthValue == true then
+return ValNumber.one()
+else
+return ValNumber.zero()
+end if
+end function
+ValNumber.Truth_=function(truthValue)
+if truthValue == 0.0 then
+return ValNumber.zero()
+end if
+if truthValue == 1.0 then
+return ValNumber.one()
+end if
+return ValNumber.__init__(truthValue)
+end function
+ValNumber.BoolValue=function()
+return self.IntValue() != 0
+end function
+ValNumber.IsA=function(type_,vm)
+if type_ == null then
+return false
+end if
+return type_ == vm.numberType
+end function
+ValNumber.ToString=function(vm)
+return self.__str__()
+end function
+ValNumber._zero=ValNumber.__init__(0)
+ValNumber._one=ValNumber.__init__(1)
+ValString=new Value
+ValString.maxSize=16777215
+ValString.magicIsA=null
+ValString._empty=null
+ValString.__init__=function(value)
+__result__ = new ValString
+if value == null then
+_value=ValString._empty
+else
+_value=value
+end if
+__result__.value=_value
+return __result__
+end function
+ValString.__str__=function()
+return self.value
+end function
+ValString.Equality=function(rhs)
+if (isinstance(rhs,ValString) and rhs.value == self.value) then
+return 1
+else
+return 0
+end if
+end function
+ValString.BoolValue=function()
+return not (self.value == null or self.value == "")
+end function
+ValString.ToString=function(vm)
+return self.__str__()
+end function
+ValString.CodeForm_=function(vm,recursionLimit)
+return ((""""+self.value.replace("""",""""""))+"""")
+end function
+ValString.empty=function()
+return ValString._empty
+end function
+ValString.GetElem=function(index)
+if not isinstance(index,ValNumber) then
+exit(KeyException("String index must be numeric"))
+end if
+i=index.IntValue()
+if i < 0 then
+i=i+len(self.value)
+end if
+if (i < 0 or i >= len(self.value)) then
+exit(IndexException("Index Error (string index "+index.__str__()+" out of range)"))
+end if
+return ValString.__init__(self.value[i:(i+1)])
+end function
+ValString.CodeForm=function(recursionLimit)
+return ((""""+self.value.replace("""",""""""))+"""")
+end function
+ValString.IsA=function(type_,vm)
+if type_ == null then
+return false
+end if
+return type_ == vm.stringType
+end function
+ValString._empty=ValString.__init__("")
+ValString.magicIsA=ValString.__init__("__isa")
+TempValString=new Value
+TempValString._tempPoolHead=null
+TempValString.__init__=function(value)
+__result__ = new TempValString
+__result__.next=null
+if value == null then
+_value=ValString._empty
+else
+_value=value
+end if
+__result__.value=_value
+return __result__
+end function
+TempValString.__str__=function()
+return self.value
+end function
+TempValString.Get=function(s)
+if TempValString._tempPoolHead == null then
+return TempValString.__init__(s)
+else
+result=TempValString._tempPoolHead
+TempValString._tempPoolHead=TempValString._tempPoolHead.next
+result.value=s
+return result
+end if
+end function
+TempValString.Release=function(temp)
+temp.next=TempValString._tempPoolHead
+TempValString._tempPoolHead=temp
+end function
+ValMap=new Value
+ValMap.maxIsaDepth=256
+ValMap.assignOverride=null
+ValMap.keyStr=null
+ValMap.valStr=null
+ValMap.Equality=function(rhs)
+if not isinstance(rhs,ValMap) then
+return 0
+end if
+rhm=rhs.map_
+if rhm == self.map_ then
+return 1
+end if
+count=len(self.map_)
+if count != len(rhm) then
+return 0
+end if
+if self.RecursiveEqual(rhs) then
+return 1
+else
+return 0
+end if
+end function
+ValMap.BoolValue=function()
+return (self.map_ != null and len(self.map_) > 0)
+end function
+ValMap.ToString=function(vm)
+return self.CodeForm_(vm,3)
+end function
+ValMap.CodeForm_=function(vm,recursionLimit)
+if recursionLimit == 0 then
+return "{...}"
+end if
+if (recursionLimit > 0 and recursionLimit < 3 and vm != null) then
+shortName=vm.FindShortName(self)
+if shortName != null then
+return shortName
+end if
+end if
+strs=[]
+for _key in self.map_.indexes()
+_value=self.map_[_key]
+nextRecurLimit=(recursionLimit-1)
+if _key == ValString.magicIsA then
+nextRecurLimit=1
+end if
+if _value != null then
+strs.append(_key.CodeForm_(vm,nextRecurLimit)+": "+_value.CodeForm_(vm,nextRecurLimit))
+else
+strs.append((_key.CodeForm_(vm,nextRecurLimit)+": 'null'"+"}"))
+end if
+end for
+if len(strs) > 0 then
+_strs=strs[0]
+for _str in strs[1:]
+_strs=_strs+(", "+_str)
+end for
+else
+_strs=""
+end if
+return (("{"+_strs)+"}")
+end function
+ValMap.CanSetElem=function()
+return true
+end function
+ValMap.__init__=function()
+__result__ = new ValMap
+__result__.map_={}
+return __result__
+end function
+ValMap.SetElem=function(index,value)
+if index == null then
+index=ValNull.instance()
+end if
+if (self.assignOverride == null or not self.assignOverride(index,value)) then
+self.map_[index]=value
+end if
+end function
+ValMap.set=function(identifier,value)
+self.map_[ValString.__init__(identifier)]=value
+end function
+ValMap.TryGetValue=function(identifier)
+idVal=TempValString.Get(identifier)
+result=self.TryGetValue_(idVal)
+TempValString.Release(idVal)
+return result
+end function
+ValMap.TryGetValue_=function(key)
+for mapKey in self.map_.keys()
+if mapKey.__str__() == key.__str__() then
+return [true,self.map_[mapKey]]
+end if
+end for
+return [false,null]
+end function
+ValMap.CodeForm=function(recursionLimit)
+if recursionLimit == 0 then
+return "{...}"
+end if
+strs=[]
+for _key in self.map_.indexes()
+_value=self.map_[_key]
+nextRecurLimit=(recursionLimit-1)
+if _key == ValString.magicIsA then
+nextRecurLimit=1
+end if
+if _value != null then
+strs.append(_key.CodeForm(nextRecurLimit)+": "+_value.CodeForm(nextRecurLimit))
+else
+strs.append((_key.CodeForm(nextRecurLimit)+": 'null'"+"}"))
+end if
+end for
+if len(strs) > 0 then
+_strs=strs[0]
+for _str in strs[1:]
+_strs=_strs+(", "+_str)
+end for
+else
+_strs=""
+end if
+return (("{"+_strs)+"}")
+end function
+ValMap.__str__=function()
+return self.CodeForm(3)
+end function
+ValMap.EvalCopy=function(context)
+result=ValMap.__init__()
+for key in self.map_.keys()
+value=self.map_[key]
+if (isinstance(key,ValTemp) or isinstance(key,ValVar) or isinstance(key,ValSeqElem)) then
+key=key.val_(context)
+end if
+if (isinstance(value,ValTemp) or isinstance(value,ValVar) or isinstance(value,ValSeqElem)) then
+value=value.val_(context)
+end if
+result.map_[key]=value
+end for
+return result
+end function
+ValMap.FullEval=function(context)
+for k in self.map_.keys()
+key=k
+value=self.map_[key]
+if (isinstance(key,ValTemp) or isinstance(key,ValVar)) then
+self.map_.pop(key)
+key=key.val_(context)
+self.map_[key]=value
+end if
+if (isinstance(value,ValTemp) or isinstance(value,ValVar)) then
+self.map_[key]=value.val_(context)
+end if
+end for
+return self
+end function
+ValMap.GetKeyValuePair=function(index)
+keys=self.map_.keys()
+if (index < 0 or index >= len(keys)) then
+exit(IndexException((("index "+index)+" out of range for map")))
+end if
+key=keys[index]
+result=ValMap.__init__()
+if isinstance(key,ValNull) then
+result.map_[ValString.keyStr]=null
+else
+result.map_[ValString.keyStr]=key
+end if
+result.map_[ValString.valStr]=self.map_[key]
+return result
+end function
+ValMap.Lookup=function(key)
+if key == null then
+key=ValNull.instance
+end if
+result=null
+obj=self
+chainDepth=0
+while obj != null
+_result=obj.TryGetValue_(key)
+if _result[0] == true then
+return _result[1]
+end if
+_result=obj.TryGetValue_(ValString.magicIsA)
+if _result[0] == false then
+break
+end if
+if chainDepth > self.maxIsaDepth then
+exit(LimitExceededException("__isa depth exceeded (perhaps a reference loop?)"))
+end if
+chainDepth=chainDepth+1
+obj=_result[1]
+end while
+return null
+end function
+ValMap.Lookup_=function(key)
+if key == null then
+key=ValNull.instance
+end if
+obj=self
+chainDepth=0
+while obj != null
+_result=obj.TryGetValue_(key)
+if _result[0] then
+return _result
+end if
+_result=obj.TryGetValue_(ValString.magicIsA)
+parent=_result[1]
+if _result[0] == false then
+break
+end if
+if chainDepth > self.maxIsaDepth then
+exit(LimitExceededException("__isa depth exceeded (perhaps a reference loop?)"))
+end if
+chainDepth=chainDepth+1
+obj=parent
+end while
+return [null,null]
+end function
+ValMap.IsA=function(type_,vm)
+if type_ == null then
+return false
+end if
+if type_ == vm.mapType then
+return true
+end if
+_result=self.TryGetValue_(ValString.magicIsA)
+p=_result[1]
+chainDepth=0
+while p != null
+if p == type_ then
+return true
+end if
+if not isinstance(p,ValMap) then
+return false
+end if
+if chainDepth > self.maxIsaDepth then
+exit(LimitExceededException("__isa depth exceeded (perhaps a reference loop?)"))
+end if
+_result=p.TryGetValue_(ValString.magicIsA)
+p=_result[1]
+end while
+return false
+end function
+ValString.keyStr=ValString.__init__("key")
+ValString.valStr=ValString.__init__("value")
+ValTemp=new Value
+ValTemp.__init__=function(tempNum)
+__result__ = new ValTemp
+__result__.tempNum=tempNum
+return __result__
+end function
+ValTemp.__str__=function()
+return "_"+str(self.tempNum)
+end function
+ValTemp.Equality=function(rhs)
+if (isinstance(rhs,ValTemp) and rhs.tempNum == self.tempNum) then
+return 1
+else
+return 0
+end if
+end function
+ValTemp.ToString=function(vm)
+return self.__str__()
+end function
+ValTemp.val_=function(context)
+return context.GetTemp_(self.tempNum)
+end function
+ValTemp.Val_=function(context)
+return [context.GetTemp(self.tempNum),null]
+end function
+ValTemp.Equals=function(rhs)
+if (isinstance(rhs,ValTemp) and rhs.tempNum == self.tempNum) then
+return 1
+else
+return 0
+end if
+end function
+ValFunction=new Value
+ValFunction.__init__=function(function_,outerVars)
+__result__ = new ValFunction
+__result__.function_=function_
+__result__.outerVars=outerVars
+return __result__
+end function
+ValFunction.__str__=function()
+return self.function_.__str__()
+end function
+ValFunction.ToString=function(vm)
+return self.function_.ToString(vm)
+end function
+ValFunction.BoolValue=function()
+return true
+end function
+ValFunction.IsA=function(_type,vm)
+if _type == null then
+return false
+end if
+return _type == vm.functionType
+end function
+ValFunction.BindAndCopy=function(contextVariables)
+return ValFunction.__init__(self.function_,contextVariables)
+end function
+ValFunction.Equality=function(rhs)
+if not isinstance(rhs,ValFunction) then
+return 0
+end if
+if self.function_ == rhs.function_ then
+return 1
+else
+return 0
+end if
+end function
+Op={}
+Op.Noop=0
+Op.AssignA=1
+Op.AssignImplicit=2
+Op.APlusB=3
+Op.AMinusB=4
+Op.ATimesB=5
+Op.ADividedByB=6
+Op.AModB=7
+Op.APowB=8
+Op.AEqualB=9
+Op.ANotEqualB=10
+Op.AGreaterThanB=11
+Op.AGreatOrEqualB=12
+Op.ALessThanB=13
+Op.ALessOrEqualB=14
+Op.AisaB=15
+Op.AAndB=16
+Op.AOrB=17
+Op.BindAssignA=18
+Op.CopyA=19
+Op.NewA=20
+Op.NotA=21
+Op.GotoA=22
+Op.GotoAifB=23
+Op.GotoAifTrulyB=24
+Op.GotoAifNotB=25
+Op.PushParam=26
+Op.CallFunctionA=27
+Op.CallIntrinsicA=28
+Op.ReturnA=29
+Op.ElemBofA=30
+Op.ElemBofIterA=31
+Op.LengthOfA=32
+AbsClamp01=function(d)
+if d < 0 then
+d=- d
+end if
+if d > 1 then
+return 1
+end if
+return d
+end function
+Check={}
+Check.Type=function(val_,requiredType,desc)
+if not isinstance(val_,requiredType) then
+if val_ == null then
+typeStr="null"
+else
+typeStr=("a "+val_.GetType())
+end if
+if desc == null then
+desc=""
+else
+desc=((" ("+desc)+")")
+end if
+exit(TypeException("got "+typeStr+" where a "+requiredType+" was required"+desc))
+end if
+end function
+Check.Range=function(i,min_,max_,desc)
+if (i < min_ or i > max_) then
+exit(IndexException("Index Error: "+desc+" ("+i+") out of range ("+min_+" to "+max_+")"))
+end if
+end function
+Line={}
+Line.__init__=function(lhs,op,rhsA,rhsB)
+__result__ = new Line
+__result__.lhs=lhs
+__result__.op=op
+__result__.rhsA=rhsA
+__result__.rhsB=rhsB
+__result__.location=null
+return __result__
+end function
+Line.__str__=function()
+if self.lhs == null then
+self.lhs=NONE
+end if
+if self.rhsA == null then
+self.rhsA=NONE
+end if
+if self.rhsB == null then
+self.rhsB=NONE
+end if
+if self.op == Op.AssignA then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()
+else if self.op == Op.AssignImplicit then
+text="_ := "+self.rhsA.__str__()
+else if self.op == Op.APlusB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" + "+self.rhsB.__str__()
+else if self.op == Op.AMinusB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" - "+self.rhsB.__str__()
+else if self.op == Op.ATimesB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" * "+self.rhsB.__str__()
+else if self.op == Op.ADividedByB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" / "+self.rhsB.__str__()
+else if self.op == Op.AModB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" % "+self.rhsB.__str__()
+else if self.op == Op.APowB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" ^ "+self.rhsB.__str__()
+else if self.op == Op.AEqualB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" == "+self.rhsB.__str__()
+else if self.op == Op.ANotEqualB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" != "+self.rhsB.__str__()
+else if self.op == Op.AGreaterThanB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" > "+self.rhsB.__str__()
+else if self.op == Op.AGreatOrEqualB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" >= "+self.rhsB.__str__()
+else if self.op == Op.ALessThanB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" < "+self.rhsB.__str__()
+else if self.op == Op.ALessOrEqualB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" <= "+self.rhsB.__str__()
+else if self.op == Op.AAndB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" and "+self.rhsB.__str__()
+else if self.op == Op.AOrB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" or "+self.rhsB.__str__()
+else if self.op == Op.AisaB then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+" isa "+self.rhsB.__str__()
+else if self.op == Op.BindAssignA then
+text=self.rhsA.__str__()+" := "+self.rhsB.__str__()+"; "+self.rhsA.__str__()+".outerVars="
+else if self.op == Op.CopyA then
+text=self.lhs.__str__()+" := copy of "+self.rhsA.__str__()
+else if self.op == Op.NewA then
+text=self.lhs.__str__()+" := new "+self.rhsA.__str__()
+else if self.op == Op.NotA then
+text=self.lhs.__str__()+" := not "+self.rhsA.__str__()
+else if self.op == Op.GotoA then
+text="goto "+self.rhsA.__str__()
+else if self.op == Op.GotoAifB then
+text="goto "+self.rhsA.__str__()+" if "+self.rhsB.__str__()
+else if self.op == Op.GotoAifTrulyB then
+text="goto "+self.rhsA.__str__()+" if truly "+self.rhsB.__str__()
+else if self.op == Op.GotoAifNotB then
+text="goto "+self.rhsA.__str__()+" if not "+self.rhsB.__str__()
+else if self.op == Op.PushParam then
+text="push param "+self.rhsA.__str__()
+else if self.op == Op.CallFunctionA then
+text=self.lhs.__str__()+" := call "+self.rhsA.__str__()+" with "+self.rhsB.__str__()+" args"
+else if self.op == Op.CallIntrinsicA then
+text="intrinsic "+Intrinsic.GetByID(self.rhsA.IntValue()).name
+else if self.op == Op.ReturnA then
+text=self.lhs.__str__()+" := "+self.rhsA.__str__()+"; return"
+else if self.op == Op.ElemBofA then
+text=self.lhs.__str__()+" = "+self.rhsA.__str__()+"["+self.rhsB.__str__()+"]"
+else if self.op == Op.ElemBofIterA then
+text=self.lhs.__str__()+" = "+self.rhsA.__str__()+" iter "+self.rhsB.__str__()
+else if self.op == Op.LengthOfA then
+text=self.lhs.__str__()+" = len("+self.rhsA.__str__()+")"
+else
+exit(RuntimeError("unknown opcode: "+str(self.op)))
+end if
+if self.location then
+text=text+""+char(9)+"// "+self.location.__str__()
+end if
+if self.lhs == NONE then
+self.lhs=null
+end if
+if self.rhsA == NONE then
+self.rhsA=null
+end if
+if self.rhsB == NONE then
+self.rhsB=null
+end if
+return text
+end function
+Line.Evaluate=function(context)
+if (self.op == Op.AssignA or self.op == Op.ReturnA or self.op == Op.AssignImplicit) then
+if (isinstance(self.rhsA,ValList) or isinstance(self.rhsA,ValMap)) then
+return self.rhsA.FullEval(context)
+else if self.rhsA == null then
+return null
+else
+return self.rhsA.val_(context)
+end if
+end if
+if self.op == Op.CopyA then
+if isinstance(self.rhsA,ValList) then
+return self.rhsA.EvalCopy(context)
+else if isinstance(self.rhsA,ValMap) then
+return self.rhsA.EvalCopy(context)
+else if self.rhsA == null then
+return null
+else
+return self.rhsA.val_(context)
+end if
+end if
+if self.rhsA != null then
+opA=self.rhsA.val_(context)
+else
+opA=null
+end if
+if self.rhsB != null then
+opB=self.rhsB.val_(context)
+else
+opB=null
+end if
+if self.op == Op.AisaB then
+if opA == null then
+return ValNumber.Truth(opB == null)
+end if
+return ValNumber.Truth(opA.IsA(opB,context.vm))
+end if
+if self.op == Op.NewA then
+if not isinstance(opA,ValMap) then
+exit(RuntimeException("argument to 'new' must be a map"))
+else if opA == context.vm.stringType then
+exit(RuntimeException("invalid use of 'new'; to create a string, use quotes, e.g. ""foo"""))
+else if opA == context.vm.listType then
+exit(RuntimeException("invalid use of 'new'; to create a list, use square brackets, e.g. [1,2]"))
+else if opA == context.vm.numberType then
+exit(RuntimeException("invalid use of 'new'; to create a number, use a numeric literal, e.g. 42"))
+else if opA == context.vm.functionType then
+exit(RuntimeException("invalid use of 'new'; to create a function, use the 'function' keyword"))
+
+end if
+newMap=ValMap.__init__()
+newMap.SetElem(ValString.magicIsA,opA)
+return newMap
+end if
+if (self.op == Op.ElemBofA and isinstance(opB,ValString)) then
+ignored=null
+_result=ValSeqElem.Resolve(opA,opB.value,context)
+ignored=_result[1]
+return _result[0]
+end if
+if (self.op == Op.AEqualB and (opA == null or opB == null)) then
+return ValNumber.Truth(opA == opB)
+end if
+if (self.op == Op.ANotEqualB and (opA == null or opB == null)) then
+return ValNumber.Truth(opA != opB)
+end if
+if ((isinstance(opA,ValString) or isinstance(opB,ValString)) and self.op == Op.APlusB) then
+if opA == null then
+return opB
+end if
+if opB == null then
+return opA
+end if
+sA=opA.__str__()
+sB=opB.__str__()
+if (len(sA)+len(sB)) > ValString.maxSize then
+exit(LimitExceededException("string too large"))
+end if
+return ValString.__init__((sA+sB))
+end if
+if isinstance(opA,ValNumber) then
+fA=opA.value
+if self.op == Op.GotoA then
+context.lineNum=fA
+return null
+end if
+if self.op == Op.GotoAifB then
+if (opB and opB.BoolValue()) then
+context.lineNum=fA
+end if
+return null
+end if
+if self.op == Op.GotoAifTrulyB then
+i=0
+if opB != null then
+i=not opB.IntValue()
+end if
+if i != 0 then
+context.lineNum=fA
+end if
+return null
+end if
+if self.op == Op.GotoAifNotB then
+if (opB == null or not opB.BoolValue()) then
+context.lineNum=fA
+end if
+return null
+end if
+if self.op == Op.CallIntrinsicA then
+result=Intrinsic.Execute(fA,context,context.partialResult)
+if result.done then
+context.partialResult=null
+return result.result
+end if
+context.partialResult=result
+context.lineNum=context.lineNum-1
+return null
+end if
+if self.op == Op.NotA then
+return ValNumber.__init__((1.0-AbsClamp01(fA)))
+end if
+if (isinstance(opB,ValNumber) or opB == null) then
+if opB != null then
+fB=opB.value
+else
+fB=0
+end if
+if self.op == Op.APlusB then
+return ValNumber.__init__((fA+fB))
+end if
+if self.op == Op.AMinusB then
+return ValNumber.__init__((fA-fB))
+end if
+if self.op == Op.ATimesB then
+return ValNumber.__init__((fA*fB))
+end if
+if self.op == Op.ADividedByB then
+return ValNumber.__init__((fA/fB))
+end if
+if self.op == Op.AModB then
+return ValNumber.__init__((fA%fB))
+end if
+if self.op == Op.APowB then
+return ValNumber.__init__((fA^fB))
+end if
+if self.op == Op.AEqualB then
+return ValNumber.Truth(fA == fB)
+end if
+if self.op == Op.ANotEqualB then
+return ValNumber.Truth(fA != fB)
+end if
+if self.op == Op.AGreaterThanB then
+return ValNumber.Truth(fA > fB)
+end if
+if self.op == Op.AGreatOrEqualB then
+return ValNumber.Truth(fA >= fB)
+end if
+if self.op == Op.ALessThanB then
+return ValNumber.Truth(fA < fB)
+end if
+if self.op == Op.ALessOrEqualB then
+return ValNumber.Truth(fA <= fB)
+end if
+if self.op == Op.AAndB then
+if not isinstance(opB,ValNumber) then
+if (opB != null and opB.BoolValue()) then
+fB=1
+else
+fB=0
+end if
+end if
+return ValNumber.__init__(AbsClamp01((fA*fB)))
+end if
+if self.op == Op.AOrB then
+if not isinstance(opB,ValNumber) then
+if (opB != null and opB.BoolValue()) then
+fB=1
+else
+fB=0
+end if
+end if
+return ValNumber.__init__(AbsClamp01(((fA+fB)-(fA*fB))))
+end if
+end if
+if self.op == Op.AEqualB then
+return ValNumber.zero()
+end if
+if self.op == Op.ANotEqualB then
+return ValNumber.one()
+end if
+else if isinstance(opA,ValString) then
+sA=opA.value
+if (self.op == Op.ATimesB or self.op == Op.ADividedByB) then
+if self.op == Op.ATimesB then
+Check.Type(opB,ValNumber,"string replication")
+factor=opB.value
+else
+Check.Type(opB,ValNumber,"string division")
+factor=(1.0/opB.value)
+end if
+if factor <= 0 then
+return ValString.empty
+end if
+repeats=int(factor)
+if (repeats*len(sA)) > ValString.maxSize then
+exit(LimitExceededException("string too large"))
+end if
+result=""
+for i in __pyRange__(repeats)
+result=result+sA
+end for
+extraChars=int((len(sA)*(factor-repeats)))
+if extraChars > 0 then
+result=result+sA[:extraChars]
+end if
+return ValString.__init__(result)
+end if
+if __pyInOp__(self.op,[Op.ElemBofA,Op.ElemBofIterA]) then
+return opA.GetElem(opB)
+end if
+if (opB == null or isinstance(opB,ValString)) then
+if opB != null then
+sB=opB.ToString(context.vm)
+else
+sB=null
+end if
+if self.op == Op.AMinusB then
+if opB == null then
+return opA
+end if
+if sA.endswith(sB) then
+sA=sA[:(len(sA)-len(sB))]
+end if
+return ValString.__init__(sA)
+end if
+if self.op == Op.NotA then
+return ValNumber.Truth(not sA)
+end if
+if self.op == Op.AEqualB then
+return ValNumber.Truth(sA == sB)
+end if
+if self.op == Op.ANotEqualB then
+return ValNumber.Truth(sA != sB)
+end if
+if self.op == Op.AGreaterThanB then
+return ValNumber.Truth(sA > sB)
+end if
+if self.op == Op.AGreatOrEqualB then
+return ValNumber.Truth(sA >= sB)
+end if
+if self.op == Op.ALessThanB then
+return ValNumber.Truth(sA < sB)
+end if
+if self.op == Op.ALessOrEqualB then
+return ValNumber.Truth(sA <= sB)
+end if
+if self.op == Op.LengthOfA then
+return ValNumber.__init__(len(sA))
+end if
+else if self.op == Op.AEqualB then
+return ValNumber.zero()
+
+end if
+else if isinstance(opA,ValList) then
+listA=opA.values
+if (self.op == Op.ElemBofA or self.op == Op.ElemBofIterA) then
+return opA.GetElem(opB)
+end if
+if self.op == Op.LengthOfA then
+return ValNumber.__init__(len(listA))
+end if
+if self.op == Op.AEqualB then
+return ValNumber.Truth(opA.Equality(opB))
+end if
+if self.op == Op.ANotEqualB then
+return ValNumber.Truth((1.0-opA.Equality(opB)))
+end if
+if self.op == Op.APlusB then
+Check.Type(opB,ValList,"list concatenation")
+listB=opB.values
+if (len(listA)+len(listB)) > ValList.maxSize then
+exit(LimitExceededException("list too large"))
+end if
+result=[]
+for v in listA
+result.append(context.ValueInContext(v))
+end for
+for v in listB
+result.append(context.ValueInContext(v))
+end for
+return ValList.__init__(result)
+end if
+if (self.op == Op.ATimesB or self.op == Op.ADividedByB) then
+if self.op == Op.ATimesB then
+Check.Type(opB,ValNumber,"list replication")
+factor=opB.value
+else
+Check.Type(opB,ValNumber,"list division")
+factor=(1.0/opB.value)
+end if
+if factor <= 0 then
+return ValList.__init__()
+end if
+finalCount=(len(listA)*factor)
+if finalCount > ValList.maxSize then
+exit(LimitExceededException("list too large"))
+end if
+result=[]
+for i in __pyRange__(finalCount)
+result.append(context.ValueInContext(listA[(i%len(listA))]))
+end for
+return ValList.__init__(result)
+else if self.op == Op.NotA then
+return ValNumber.Truth(not opA.BoolValue())
+
+end if
+else if isinstance(opA,ValMap) then
+if self.op == Op.ElemBofA then
+se=ValSeqElem.__init__(opA,opB)
+return se.val_(context)
+else if self.op == Op.ElemBofIterA then
+return opA.GetKeyValuePair(opB.IntValue())
+else if self.op == Op.LengthOfA then
+return ValNumber.__init__(len(opA.map_))
+
+end if
+if self.op == Op.AEqualB then
+return ValNumber.Truth(opA.Equality(opB))
+end if
+if self.op == Op.ANotEqualB then
+return ValNumber.Truth((1.0-opA.Equality(opB)))
+end if
+if self.op == Op.APlusB then
+map1=opA.map_
+Check.Type(opB,ValMap,"map combination")
+map2=opB.map_
+result=ValMap.__init__()
+for key in map1.keys()
+value=map1[key]
+result.map_[key]=context.ValueInContext(value)
+end for
+for key in map2.keys()
+value=map2[key]
+result.map_[key]=context.ValueInContext(value)
+end for
+return result
+else if self.op == Op.NotA then
+return ValNumber.Truth(not opA.BoolValue())
+
+end if
+else if (isinstance(opA,ValFunction) and isinstance(opB,ValFunction)) then
+fA=opA.function_
+fB=opB.function_
+if self.op == Op.AEqualB then
+return ValNumber.Truth(fA == fB)
+else if self.op == Op.ANotEqualB then
+return ValNumber.Truth(fA != fB)
+
+end if
+else if self.op == Op.BindAssignA then
+if context.variables == null then
+context.variables=ValMap.__init__()
+end if
+valFunc=opA
+return valFunc.BindAndCopy(context.variables)
+
+end if
+if (self.op == Op.AAndB or self.op == Op.AOrB) then
+if (opA != null and opA.BoolValue()) then
+fA=1
+else
+fA=0
+end if
+if isinstance(opB,ValNumber) then
+fB=opB.value
+else if (opB != null and opB.BoolValue()) then
+fB=1
+else
+fB=0
+end if
+if self.op == Op.AAndB then
+result=AbsClamp01((fA*fB))
+else
+result=AbsClamp01(((fA+fB)-(fA*fB)))
+end if
+return ValNumber.__init__(result)
+end if
+exit(UnknownOpException("Unknown op: "+self.op))
+end function
+Function={}
+Function.__init__=function(code)
+__result__ = new Function
+__result__.code=code
+__result__.parameters=[]
+return __result__
+end function
+Function.__str__=function()
+s="FUNCTION("
+for i in __pyRange__(len(self.parameters))
+if i > 0 then
+s=s+", "
+end if
+s=s+self.parameters[i].name
+if self.parameters[i].defaultValue != null then
+s=s+("="+str(self.parameters[i].defaultValue))
+end if
+end for
+s=s+")"
+return s
+end function
+Function.ToString=function(vm)
+s="FUNCTION("
+for i in __pyRange__(len(self.parameters))
+if i > 0 then
+s=s+", "
+end if
+s=s+self.parameters[i].name
+if self.parameters[i].defaultValue != null then
+s=s+("="+self.parameters[i].defaultValue.CodeForm(vm))
+end if
+end for
+s=s+")"
+return s
+end function
+Result={}
+Result._null=null
+Result._false=null
+Result._true=null
+Result.__init__=function(result,done)
+__result__ = new Result
+__result__.done=done
+__result__.result=result
+return __result__
+end function
+Result.Null=function()
+return Result._null
+end function
+Result.FALSE=function()
+return Result._false
+end function
+Result.TRUE=function()
+return Result._true
+end function
+Result._null=Result.__init__(null,true)
+Result._false=Result.__init__(ValNumber.zero(),true)
+Result._true=Result.__init__(ValNumber.one(),true)
+Intrinsic={}
+Intrinsic.shortNames=null
+Intrinsic._all=null
+Intrinsic.nameMap=null
+Intrinsic.__init__=function()
+__result__ = new Intrinsic
+__result__.name=""
+__result__.code=null
+__result__.numericID=null
+__result__.function_=null
+__result__.valFunction=null
+return __result__
+end function
+Intrinsic.GetFunc=function()
+if self.function_.code == null then
+self.function_.code=[]
+self.function_.code.append(Line.__init__(TAC.LTemp(0),Op.CallIntrinsicA,TAC.Num(self.numericID)))
+end if
+return self.valFunction
+end function
+Intrinsic.GetByID=function(inrId)
+return Intrinsic._all[inrId]
+end function
+Intrinsic.GetByName=function(name)
+Intrinsics.InitIfNeeded()
+if __pyInOp__(name,Intrinsic.nameMap) then
+return Intrinsic.nameMap[name]
+end if
+return null
+end function
+Intrinsic.Create=function(name)
+result=Intrinsic.__init__()
+result.name=name
+result.numericID=len(Intrinsic._all)
+result.function_=Function.__init__(null)
+result.valFunction=ValFunction.__init__(result.function_)
+Intrinsic._all.append(result)
+Intrinsic.nameMap[name]=result
+return result
+end function
+Intrinsic.Execute=function(id_,context,partialResult)
+item=Intrinsic.GetByID(id_)
+return item.code(context,partialResult)
+end function
+Intrinsic.AddParam_=function(name,defaultValue)
+self.function_.parameters.append(Param.__init__(name,defaultValue))
+end function
+Intrinsic.AddParam=function(name,defaultValue)
+if defaultValue == 0 then
+defVal=ValNumber.zero()
+else if defaultValue == 1 then
+defVal=ValNumber.one()
+else
+defVal=TAC.Num(defaultValue)
+end if
+self.function_.parameters.append(Param.__init__(name,defVal))
+end function
+Intrinsic._all=[]
+Intrinsic.nameMap={}
+Intrinsic.shortNames={}
+Intrinsics={}
+Intrinsics.initialized=null
+Intrinsics._listType=null
+Intrinsics._mapType=null
+Intrinsics._stringType=null
+Intrinsics._numberType=null
+Intrinsics._functionType=null
+Intrinsics.CompileSlice=function(code,_list,fromIdx,toIdx,resultTempNum)
+code.append(Line.__init__(null,Op.PushParam,_list))
+if fromIdx == null then
+code.append(Line.__init__(null,Op.PushParam,TAC.Num(0)))
+else
+code.append(Line.__init__(null,Op.PushParam,fromIdx))
+end if
+code.append(Line.__init__(null,Op.PushParam,toIdx))
+func=Intrinsic.GetByName("slice").GetFunc()
+code.append(Line.__init__(TAC.LTemp(resultTempNum),Op.CallFunctionA,func,TAC.Num(3)))
+end function
+Intrinsics.InitIfNeeded=function()
+if Intrinsics.initialized then
+return
+end if
+Intrinsics.initialized=true
+f=Intrinsic.Create("abs")
+f.AddParam("x",0)
+absCode=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(abs(context.GetLocalDouble("x"))),true)
+end function
+f.code=@absCode
+f=Intrinsic.Create("acos")
+f.AddParam("x",0)
+acosCode=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(acos(context.GetLocalDouble("x"))),true)
+end function
+f.code=@acosCode
+f=Intrinsic.Create("asin")
+f.AddParam("x",0)
+asinAsin=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(asin(context.GetLocalDouble("x"))),true)
+end function
+f.code=@asinAsin
+f=Intrinsic.Create("atan")
+f.AddParam("x",0)
+atanAsin=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(atan(context.GetLocalDouble("x"))),true)
+end function
+f.code=@atanAsin
+f=Intrinsic.Create("bitAnd")
+f.AddParam("i",0)
+f.AddParam("j",0)
+codeBitAnd=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(bitAnd(context.GetLocalDouble("i"),context.GetLocalDouble("j"))),true)
+end function
+f.code=@codeBitAnd
+f=Intrinsic.Create("bitOr")
+f.AddParam("i",0)
+f.AddParam("j",0)
+codeBitOr=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(bitOr(context.GetLocalDouble("i"),context.GetLocalDouble("j"))),true)
+end function
+f.code=@codeBitOr
+f=Intrinsic.Create("bitXor")
+f.AddParam("i",0)
+f.AddParam("j",0)
+codeBitXor=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(bitXor(context.GetLocalDouble("i"),context.GetLocalDouble("j"))),true)
+end function
+f.code=@codeBitXor
+f=Intrinsic.Create("char")
+f.AddParam("codePoint",65)
+codeChar=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(char(context.GetLocalInt("codePoint"))),true)
+end function
+f.code=@codeChar
+f=Intrinsic.Create("ceil")
+f.AddParam("x",65)
+codeCeil=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(ceil(context.GetLocalDouble("x"))),true)
+end function
+f.code=@codeCeil
+f=Intrinsic.Create("code")
+f.AddParam_("self")
+codeCode=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(code(context.self_.__str__())),true)
+end function
+f.code=@codeCode
+f=Intrinsic.Create("cos")
+f.AddParam("radians",0)
+codeCos=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(code(context.GetLocalDouble("radians"))),true)
+end function
+f.code=@codeCos
+f=Intrinsic.Create("floor")
+f.AddParam("x",0)
+codeFloor=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(floor(context.GetLocalDouble("floor"))),true)
+end function
+f.code=@codeFloor
+f=Intrinsic.Create("funcRef")
+codeFuncRef=function(context,partialResult)
+if context.vm.functionType == null then
+context.vm.functionType=Intrinsics.FunctionType().EvalCopy(context.vm.globalContext)
+end if
+return Result.__init__(context.vm.functionType,true)
+end function
+f.code=@codeFuncRef
+f=Intrinsic.Create("hash")
+f.AddParam_("obj")
+codeHash=function(context,partialResult)
+val_=context.GetLocal("obj")
+return Result.__init__(ValNumber.__init__(val_.Hash()),true)
+end function
+f.code=@codeHash
+f=Intrinsic.Create("hasIndex")
+f.AddParam_("self")
+f.AddParam_("index")
+hasIndexCode=function(context,partialResult)
+self_=context.self_
+index=context.GetLocal("index")
+if isinstance(self_,ValList) then
+if isinstance(index,ValNumber) then
+list_=self_.values
+i=index.IntValue()
+return Result.__init__(ValNumber.Truth((i >= - len(list_) and i < len(list_))),true)
+end if
+return Result.FALSE()
+else if isinstance(self_,ValString) then
+if isinstance(index,ValNumber) then
+value=self_.value
+i=index.IntValue()
+return Result.__init__(ValNumber.Truth((i >= - len(value) and i < len(value))),true)
+end if
+return Result.FALSE()
+else if isinstance(self_,ValMap) then
+return Result.__init__(ValNumber.Truth(self_.map_.hasIndex(index)),true)
+
+end if
+return Result.Null()
+end function
+f.code=@hasIndexCode
+f=Intrinsic.Create("indexes")
+f.AddParam_("self")
+indexesCode=function(context,partialResult)
+self_=context.self_
+result=[]
+if isinstance(self_,ValList) then
+for e in self_.values.indexes
+result.append(ValNumber.__init__(e))
+end for
+return Result.__init__(ValList.__init__(result),true)
+else if isinstance(self_,ValString) then
+for e in self_.value.indexes
+result.append(ValNumber.__init__(e))
+end for
+return Result.__init__(ValList.__init__(result),true)
+else if isinstance(self_,ValMap) then
+for e in self_.map_.indexes
+result.append(e)
+end for
+return Result.__init__(ValList.__init__(result),true)
+
+end if
+return Result.Null()
+end function
+f.code=@indexesCode
+f=Intrinsic.Create("indexOf")
+f.AddParam_("self")
+f.AddParam_("value")
+f.AddParam_("after")
+indexOfCode=function(context,partialResult)
+self_=context.self_
+value=context.GetLocal("value")
+after=context.GetLocal("after")
+if after != null then
+after=after.IntValue()
+end if
+if isinstance(self_,ValList) then
+result=self_.values.indexOf(value,after)
+return Result.__init__(ValNumber.__init__(result),true)
+else if isinstance(self_,ValString) then
+result=self_.value.indexOf(value,after)
+return Result.__init__(ValNumber.__init__(result),true)
+else if isinstance(self_,ValMap) then
+result=self_.map_.indexOf(value,after)
+return Result.__init__(result,true)
+
+end if
+return Result.Null()
+end function
+f.code=@indexOfCode
+f=Intrinsic.Create("insert")
+f.AddParam_("self")
+f.AddParam_("index")
+f.AddParam_("value")
+codeInsert=function(context,partialResult)
+self_=context.self_
+index=context.GetLocal("index")
+value=context.GetLocal("value")
+if index == null then
+exit(RuntimeException("insert: index argument required"))
+end if
+if not isinstance(index,ValNumber) then
+exit(RuntimeException("insert: number required for index argument"))
+end if
+idx=index.IntValue()
+if isinstance(self_,ValList) then
+list_=self_.values
+if idx < 0 then
+idx=idx+(len(list_)+1)
+end if
+Check.Range(idx,0,len(list_),"index")
+list_.insert(idx,value)
+return Result.__init__(ValList.__init__(list_),true)
+else if isinstance(index,ValString) then
+s=self_.__str__()
+if idx < 0 then
+idx=idx+(len(s)+1)
+end if
+Check.Range(idx,0,len(s),"index")
+s=((s[:idx]+value.__str__())+s[idx:])
+return Result.__init__(ValString.__init__(s),true)
+else
+exit(RuntimeException("insert called on invalid type"))
+end if
+end function
+f.code=@codeInsert
+f=Intrinsic.Create("join")
+f.AddParam_("self")
+f.AddParam("delimiter"," ")
+codeJoin=function(context,partialResult)
+val_=context.self_
+delim=context.GetLocalString("delimiter")
+if not isinstance(val_,ValList) then
+return Result.__init__(val_,true)
+end if
+list_=[]
+for value in val_.values
+if value == null then
+list_.append(null)
+else
+list_.append(value.__str__())
+end if
+end for
+result=list_.join(delim)
+return Result.__init__(ValString.__init__(result),true)
+end function
+f.code=@codeJoin
+f=Intrinsic.Create("len")
+f.AddParam_("self")
+lenCode=function(context,partialResult)
+self_=context.self_
+if isinstance(self_,ValList) then
+return Result.__init__(ValNumber.__init__(len(self_.values)),true)
+else if isinstance(self_,ValString) then
+return Result.__init__(ValNumber.__init__(len(self_.value)),true)
+else if isinstance(self_,ValMap) then
+return Result.__init__(ValNumber.__init__(len(self_.map_)),true)
+
+end if
+return Result.Null()
+end function
+f.code=@lenCode
+f=Intrinsic.Create("list")
+codeList=function(context,partialResult)
+if context.vm.listType == null then
+context.vm.listType=Intrinsics.ListType().EvalCopy(context.vm.globalContext)
+end if
+return Result.__init__(context.vm.listType,true)
+end function
+f.code=@codeList
+f=Intrinsic.Create("log")
+f.AddParam("x",0)
+f.AddParam("base",10)
+codeLog=function(context,partialResult)
+x=context.GetLocalDouble("x")
+b=context.GetLocalDouble("base")
+return Result.__init__(ValNumber.__init__(log(x,b)),true)
+end function
+f.code=@codeLog
+f=Intrinsic.Create("lower")
+f.AddParam_("self")
+codeLower=function(context,partialResult)
+val_=context.self_
+if isinstance(val_,ValString) then
+str_=val_.value
+return Result.__init__(lower(str_),true)
+end if
+return Result.__init__(val_,true)
+end function
+f.code=@codeLower
+f=Intrinsic.Create("map")
+codeMap=function(context,partialResult)
+if context.vm.mapType == null then
+context.vm.mapType=Intrinsics.MapType().EvalCopy(context.vm.globalContext)
+end if
+return Result.__init__(context.vm.mapType,true)
+end function
+f.code=@codeMap
+f=Intrinsic.Create("number")
+codeNumber=function(context,partialResult)
+if context.vm.numberType == null then
+context.vm.numberType=Intrinsics.NumberType().EvalCopy(context.vm.globalContext)
+end if
+return Result.__init__(context.vm.numberType,true)
+end function
+f.code=@codeNumber
+f=Intrinsic.Create("pi")
+codePi=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(pi),true)
+end function
+f.code=@codePi
+f=Intrinsic.Create("print")
+f.AddParam("s",ValString.empty())
+f.AddParam_("delimiter")
+printCode=function(context,partialResult)
+sVal=context.GetLocal("s")
+if sVal == null then
+s="null"
+else
+s=sVal.__str__()
+end if
+delimiter=context.GetLocal("delimiter")
+if delimiter == null then
+print(s)
+else
+print(s,delimiter.__str__())
+end if
+return Result.Null()
+end function
+f.code=@printCode
+f=Intrinsic.Create("pop")
+f.AddParam_("self")
+codePop=function(context,partialResult)
+self_=context.self_
+if isinstance(self_,ValList) then
+if len(self_.values) < 1 then
+return Result.Null
+end if
+return Result.__init__(self_.values.pop(),true)
+else if isinstance(self_,ValMap) then
+if len(self_.map_) < 1 then
+return Result.Null
+end if
+return Result.__init__(self_.map_.pop(),true)
+
+end if
+return Result.Null()
+end function
+f.code=@codePop
+f=Intrinsic.Create("pull")
+f.AddParam_("self")
+codePull=function(context,partialResult)
+self_=context.self_
+if isinstance(self_,ValList) then
+if len(self_.values) < 1 then
+return Result.Null
+end if
+return Result.__init__(self_.values.pull(),true)
+else if isinstance(self_,ValMap) then
+if len(self_.map_) < 1 then
+return Result.Null
+end if
+return Result.__init__(self_.map_.pull(),true)
+
+end if
+return Result.Null()
+end function
+f.code=@codePull
+f=Intrinsic.Create("push")
+f.AddParam_("self")
+f.AddParam_("value")
+codePush=function(context,partialResult)
+self_=context.self_
+value=context.GetLocal("value")
+if isinstance(self_,ValList) then
+list_=self_.values
+list_.push(value)
+return Result.__init__(self_,true)
+else if isinstance(self_,ValMap) then
+map_=self_.map_
+map_[value]=ValNumber.one()
+return Result.__init__(self_,true)
+
+end if
+return Result.Null()
+end function
+f.code=@codePush
+f=Intrinsic.Create("range")
+f.AddParam("from",0)
+f.AddParam("to",0)
+f.AddParam_("step")
+codeRange=function(context,partialResult)
+p0=context.GetLocal("from")
+p1=context.GetLocal("to")
+p2=context.GetLocal("step")
+fromVal=p0.DoubleValue()
+toVal=p1.DoubleValue()
+if toVal >= fromVal then
+step=1
+else
+step=- 1
+end if
+if isinstance(p2,ValNumber) then
+step=p2.value
+end if
+if step == 0 then
+exit(RuntimeException("range() error (step==0)"))
+end if
+count=(int(((toVal-fromVal)/step))+1)
+if count > ValList.maxSize then
+exit(RuntimeException("list too large"))
+end if
+values=[]
+v=fromVal
+while ((step > 0 and v <= toVal) or (step <= 0 and v >= toVal))
+values.append(TAC.Num(v))
+v=v+step
+end while
+return Result.__init__(ValList.__init__(values),true)
+end function
+f.code=@codeRange
+f=Intrinsic.Create("refEquals")
+f.AddParam_("a")
+f.AddParam_("b")
+codeRefEquals=function(context,partialResult)
+a=context.GetLocal("a")
+b=context.GetLocal("b")
+result=false
+if a == null then
+result=b == null
+else if isinstance(a,ValNumber) then
+result=(isinstance(b,ValNumber) and a.DoubleValue() == b.DoubleValue())
+else if isinstance(a,ValString) then
+result=(isinstance(b,ValString) and a.value == b.value)
+else if isinstance(a,ValList) then
+result=(isinstance(b,ValList) and a.values == b.values)
+else if isinstance(a,ValMap) then
+result=(isinstance(b,ValMap) and a.map_ == b.map_)
+else if isinstance(a,ValFunction) then
+result=(isinstance(b,ValFunction) and a.function_ == b.function_)
+else
+result=a.Equality(b) >= 1
+end if
+return Result.__init__(ValNumber.Truth(result),true)
+end function
+f.code=@codeRefEquals
+f=Intrinsic.Create("remove")
+f.AddParam_("self")
+f.AddParam_("k")
+codeRefRemove=function(context,partialResult)
+self_=context.self_
+k=context.GetLocal("k")
+if isinstance(self_,ValMap) then
+if k == null then
+k=ValNull.instance
+end if
+return Result.__init__(ValNumber.Truth(self_.map_.remove(k)),true)
+else if isinstance(self_,ValList) then
+if k == null then
+return RuntimeException("argument to 'remove' must not be null")
+end if
+idx=k.IntValue()
+if idx < 0 then
+idx=idx+len(self_.values)
+end if
+Check.Range(idx,0,(len(self_.values)-1),"index")
+self_.values.remove(idx)
+return Result.Null()
+else if isinstance(self_,ValString) then
+if k == null then
+return RuntimeException("argument to 'remove' must not be null")
+end if
+substr=k.__str__()
+return Result.__init__(ValString.__init__(self_.value.remove(substr)),true)
+
+end if
+exit(TypeException("Type Error: 'remove' requires map, list, or string"))
+end function
+f.code=@codeRefRemove
+f=Intrinsic.Create("replace")
+f.AddParam_("self")
+f.AddParam_("oldval")
+f.AddParam_("newval")
+f.AddParam_("maxCount")
+codeReplace=function(context,partialResult)
+self_=context.self_
+if self_ == null then
+exit(RuntimeException("argument to 'replace' must not be null"))
+end if
+oldval=context.GetLocal("oldval")
+newval=context.GetLocal("newval")
+maxCountVal=context.GetLocal("maxCount")
+maxCount=- 1
+if maxCountVal != null then
+maxCount=maxCountVal.IntValue()
+if maxCount < 1 then
+return Result.__init__(self_,true)
+end if
+end if
+count=0
+if isinstance(self_,ValMap) then
+self_.map_.replace(oldval,newval,maxCount)
+return Result.__init__(self_,true)
+else if isinstance(self_,ValList) then
+self_.values.replace(oldval,newval,maxCount)
+return Result.__init__(self_,true)
+else if isinstance(self_,ValString) then
+str_=self_.__str__()
+if oldval == null then
+oldstr=""
+else
+oldstr=oldval.__str__()
+end if
+if (oldstr == null or len(oldstr) == 0) then
+exit(RuntimeException("replace: oldval argument is empty"))
+end if
+if newval == null then
+newstr=""
+else
+newstr=newval.__str__()
+end if
+return Result.__init__(ValString.__init__(str_.replace(oldstr,newstr,maxCount)),true)
+
+end if
+exit(TypeException("Type Error: 'remove' requires map, list, or string"))
+end function
+f.code=@codeReplace
+f=Intrinsic.Create("round")
+f.AddParam("x",0)
+f.AddParam("decimalPlaces",0)
+codeRound=function(context,partialResult)
+num=context.GetLocalDouble("x")
+decimalPlaces=context.GetLocalInt("decimalPlaces")
+return Result.__init__(ValNumber.__init__(round(num,decimalPlaces)),true)
+end function
+f.code=@codeRound
+f=Intrinsic.Create("rnd")
+f.AddParam_("seed")
+codeSeed=function(context,partialResult)
+seed=context.GetLocal("seed")
+return Result.__init__(ValNumber.__init__(rnd(seed.IntValue())),true)
+end function
+f.code=@codeSeed
+f=Intrinsic.Create("sign")
+f.AddParam("x",0)
+codeSeed=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(sign(context.GetLocalDouble("x"))),true)
+end function
+f.code=@codeSeed
+f=Intrinsic.Create("sin")
+f.AddParam("radians",0)
+codeSin=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(sin(context.GetLocalDouble("radians"))),true)
+end function
+f.code=@codeSin
+f=Intrinsic.Create("slice")
+f.AddParam_("seq")
+f.AddParam("from",0)
+f.AddParam_("to")
+sliceCode=function(context,partialResult)
+seq=context.GetLocal("seq")
+fromIdx=context.GetLocalInt("from")
+toVal=context.GetLocal("to")
+if toVal != null then
+toIdx=toVal.IntValue()
+end if
+if isinstance(seq,ValList) then
+if toVal == null then
+toIdx=len(seq.values)
+end if
+return Result.__init__(ValList.__init__(seq.values[fromIdx:toIdx]),true)
+else if isinstance(seq,ValString) then
+if toVal == null then
+toIdx=len(seq.value)
+end if
+return Result.__init__(ValString.__init__(seq.value[fromIdx:toIdx]),true)
+
+end if
+return Result.Null()
+end function
+f.code=@sliceCode
+f=Intrinsic.Create("sort")
+f.AddParam_("self")
+f.AddParam_("byKey")
+f.AddParam_("ascending",ValNumber.one())
+codeSort=function(context,partialResult)
+self_=context.self_
+if (self_ == null or not isinstance(self_,ValList) or len(self_.values) < 2) then
+return Result.__init__(self_,true)
+end if
+byKey=context.GetLocal("byKey")
+ascending=context.GetLocalBool("ascending")
+self_.values.sort(byKey,ascending)
+return Result.__init__(self_,true)
+end function
+f.code=@codeSort
+f=Intrinsic.Create("split")
+f.AddParam_("self")
+f.AddParam("delimiter"," ")
+f.AddParam("maxCount",- 1)
+codeSplit=function(context,partialResult)
+self_=context.self.__str__()
+delim=context.GetLocalString("delimiter")
+maxCount=context.GetLocalInt("maxCount")
+return Result.__init__(self_.split(delim,maxCount),true)
+end function
+f.code=@codeSplit
+f=Intrinsic.Create("sqrt")
+f.AddParam("x",0)
+codeSqrt=function(context,partialResult)
+return Result.__init__(sqrt(context.GetLocalDouble("x")),true)
+end function
+f.code=@codeSqrt
+f=Intrinsic.Create("stackTrace")
+codeStackTrace=function(context,partialResult)
+vm=context.vm
+_stackAtBreak=ValString.__init__("_stackAtBreak")
+if __pyInOp__(_stackAtBreak,vm.globalContext.variables) then
+return Result.__init__(vm.globalContext.variables.map[_stackAtBreak],true)
+end if
+result=Intrinsics.StackList(vm)
+return Result.__init__(result,true)
+end function
+f.code=@codeStackTrace
+f=Intrinsic.Create("str")
+f.AddParam_("x",ValString.empty())
+codeStr=function(context,partialResult)
+x=context.GetLocal("x")
+if x == null then
+return Result.__init__(ValString.empty())
+end if
+return Result.__init__(x.__str__(),true)
+end function
+f.code=@codeStr
+f=Intrinsic.Create("string")
+codeString=function(context,partialResult)
+if context.vm.stringType == null then
+context.vm.stringType=Intrinsics.StringType().EvalCopy(context.vm.globalContext)
+end if
+return Result.__init__(context.vm.stringType,true)
+end function
+f.code=@codeString
+f=Intrinsic.Create("shuffle")
+f.AddParam_("self")
+codeShuffle=function(context,partialResult)
+self_=context.self_
+if isinstance(self_,ValList) then
+self_.values.shuffle()
+return Result.__init__(self_,true)
+else if isinstance(self_,ValMap) then
+self_.map_.shuffle()
+return Result.__init__(self_,true)
+
+end if
+return Result.Null()
+end function
+f.code=@codeShuffle
+f=Intrinsic.Create("sum")
+f.AddParam_("self")
+codeSum=function(context,partialResult)
+self_=context.self_
+sum=0
+if isinstance(self_,ValList) then
+list_=self_.values
+for v in list_
+sum=sum+v.DoubleValue()
+end for
+else if isinstance(self_,ValMap) then
+map_=self_.map_
+for v in map_.values()
+sum=sum+v.DoubleValue()
 end for
 
-_escapeFrom = ["\\", """", char(8), char(9), char(10), char(12), char(13)]
-_escapeTo = ["\\\\", "\""", "\b","\t","\n","\f","\r"]
-_escapeIndexes = _escapeFrom.indexes
-LexicalAnalyzer = {}
-LexicalAnalyzer.tokenize = function(expression)
-    result = [] // [{"type": type, "value": value, "loc": [line, colume]}, ...]
-    line = 0
-    colume = 0
-    charSize = expression.len
-    while expression
-        if SHOW_TOKENIZE_PROGRESS then
-            print ("Tokenize progress: " + str(1 - expression.len / charSize))
-        end if
-        for each_rule in self.rules
-            type = each_rule["type"]
-            ignore = each_rule["ignore"]
-            value = null
-
-            for each_regex in each_rule["regex"]
-                regex_result = expression.matches(each_regex)
-                for each in regex_result.indexes
-                value = regex_result[each]
-                break
-                end for
-                if value then break
-            end for
-
-            if value then
-                colume = colume + value.len
-                if type == "ENTER" then
-                line = line + 1
-                colume = 0
-                end if
-                expression = expression[value.len:]
-                if ignore then break
-                result.push({"type": type, "value": value, "loc": [line, colume]})
-                break
-            end if
-        end for
-        if not value then
-            exit("Unknown token: " + expression[:10])
-        end if 
-    end while
-    if SHOW_TOKENIZE_PROGRESS then
-        print("Tokenizing Completed")
-    end if
-    return result
-end function
-LexicalAnalyzer.addRule = function(type, regex, ignore=false)
-    if typeof(regex) != "list" then
-        regex = [regex]
-    end if
-    self["rules"].push({"type": type, "regex": regex, "ignore": ignore})
-end function
-LexicalAnalyzer.init = function
-   result = new LexicalAnalyzer
-   result["rules"] = [] // [{"type": type, "regex": [regex, ...], "ignore": bool}, ..]
-   return result
-end function
-
-lexer = LexicalAnalyzer.init
-lexer.addRule("SPACE", "^[ \t]+", true)
-lexer.addRule("ENTER", "^[\r\n]")
-lexer.addRule("COMMENT", "^\/\/.*(?=\n|\r|$)", true)
-lexer.addRule("EQUALS", "^==")
-lexer.addRule("NOT_EQ", "^!=")
-lexer.addRule("GT_EQ", "^>=")
-lexer.addRule("LT_EQ", "^<=")
-lexer.addRule("ASSIGN", "^=")
-lexer.addRule("LESS_THAN", "^<")
-lexer.addRule("GREATER_THAN", "^>")
-lexer.addRule("COLON", "^:")
-lexer.addRule("ADD", "^\+")
-lexer.addRule("MINUS", "^-")
-lexer.addRule("DIV", "^\/")
-lexer.addRule("MOD", "^%")
-lexer.addRule("STAR", "^\*")
-lexer.addRule("COMMA", "^,");
-lexer.addRule("SEMI_COLON", "^;")
-lexer.addRule("DOT", "^\.")
-lexer.addRule("AT", "^@")
-lexer.addRule("OPEN_PAREN", "^\(")
-lexer.addRule("CLOSE_PAREN", "^\)")
-lexer.addRule("OPEN_BRACE", "^\{")
-lexer.addRule("CLOSE_BRACE", "^\}")
-lexer.addRule("OPEN_BRACKET", "^\[")
-lexer.addRule("CLOSE_BRACKET", "^\]")
-lexer.addRule("IF", "^if(?![A-Za-z0-9_])")
-lexer.addRule("THEN", "^then(?![A-Za-z0-9_])")
-lexer.addRule("ELSE", "^else(?![A-Za-z0-9_])")
-lexer.addRule("WHILE", "^while(?![A-Za-z0-9_])")
-lexer.addRule("FOR", "^for(?![A-Za-z0-9_])")
-lexer.addRule("FUNCTION", "^function(?![A-Za-z0-9_])")
-lexer.addRule("NEW", "^new(?![A-Za-z0-9_])")
-lexer.addRule("RETURN", "^return(?![A-Za-z0-9_])")
-lexer.addRule("END", "^end(?![A-Za-z0-9_])")
-lexer.addRule("IN", "^in(?![A-Za-z0-9_])")
-lexer.addRule("AND", "^and(?![A-Za-z0-9_])")
-lexer.addRule("OR", "^or(?![A-Za-z0-9_])")
-lexer.addRule("NOT", "^not(?![A-Za-z0-9_])")
-lexer.addRule("NULL", "^null(?![A-Za-z0-9_])")
-lexer.addRule("TRUE", "^true(?![A-Za-z0-9_])")
-lexer.addRule("FALSE", "^false(?![A-Za-z0-9_])")
-lexer.addRule("IDENTIFIER", "^[A-Za-z_][A-Za-z0-9_]*")
-lexer.addRule("STRING", "^((?="")(?:""[^""\\]*(?:\\[\s\S][^""\\]*)*""))")
-lexer.addRule("NUMBER", "^-?\d+(\.\d+)?")
-
-GSItoken_idx = 0
-GSIidx_stack = []
-GSInode_stack = []
-GSIast_stack = []
-GSItokens = []
-GSIastRelation = function(current_ast, last_ast)
-    if current_ast == null or last_ast == null then
-        return "other"
-    end if
-
-    last_ts = last_ast.type_stack
-    current_ts = current_ast.type_stack
-    if last_ts.len == current_ts.len then
-        for i in last_ts.indexes
-            if last_ts[i] != current_ts[i] then
-                return "other"
-            end if
-        end for
-        if current_ts[-1] == current_ast.type then
-            return "child"
-        else 
-            return "brother"
-        end if
-    else if last_ts.len == current_ts.len - 1 then
-        full_ts = last_ts + [last_ast.type]
-        for i in full_ts.indexes
-            if full_ts[i] != current_ts[i] then
-                return "other"
-            end if
-        end for
-        return "child"
-    else
-        return "other"
-    end if
-end function
-GSIparse = function(gsi_tokens)
-    globals.GSItoken_idx = 0
-    globals.GSIidx_stack = [0]
-    globals.GSInode_stack = []
-    globals.GSIast_stack = []
-    globals.GSItokens = gsi_tokens
-    globals.GSInode_stack.push([greyscript])
-
-    while globals.GSInode_stack.len > 0 and globals.GSItoken_idx < globals.GSItokens.len
-        nodes = globals.GSInode_stack[-1]
-        globals.GSItoken_idx = globals.GSIidx_stack[-1]
-        
-        if nodes.len <= 0 or nodes[0] == null then
-            globals.GSInode_stack.pop
-            globals.GSIast_stack.pop
-            globals.GSIidx_stack.pop
-            continue
-        end if
-
-        tmp = []
-        for each_nodes in globals.GSInode_stack
-            debug = []
-            for each in each_nodes
-                debug.push(each.type)
-            end for
-            tmp.push(debug)
-        end for
-        if DEBUG_MODE then
-            print "----------"
-            print "[DEBUG] GSItoken_idx: " + str(globals.GSItoken_idx)
-            print "[DEBUG] GSItoken: " + str(globals.GSItokens[globals.GSItoken_idx])
-            print "[DEBUG] Syntax Tree: " + str(tmp)
-            print "[DEBUG] GSIidx_stack: " + str(globals.GSIidx_stack)
-        end if
-        
-
-        while nodes.len > 0
-            each_node = nodes.pull
-            func_result = each_node.expand_func()
-            next_node = each_node.next_node
-            type_stack = each_node.type_stack
-            ignore = each_node.ignore
-            if DEBUG_MODE then
-                print "[DEBUG] each_node.type: " + each_node.type
-                print "each result:"
-            end if
-            if typeof(func_result) == "list" then
-                tmp2 = []
-                for each_next_node in func_result
-                    tmp2.push(each_next_node.type)
-                end for
-                if DEBUG_MODE then
-                    print tmp2
-                end if
-            else
-                if DEBUG_MODE then
-                    print func_result
-                end if
-            end if
-            if WAIT_WHEN_DEBUG then
-                user_input()
-            end if
-            if typeof(func_result) == "list" then
-                globals.GSInode_stack.push(func_result)
-                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": [], "ignore": ignore})
-                globals.GSIidx_stack.push(globals.GSItoken_idx)
-                break
-            else if func_result.flag == true then
-                globals.GSInode_stack.push([next_node])
-                result_items = func_result["items"]
-                if func_result.ignore then
-                    result_items = []
-                end if
-                globals.GSIast_stack.push({"type": each_node.type, "type_stack": type_stack, "items": result_items, "ignore": ignore})
-                globals.GSIidx_stack.push(globals.GSItoken_idx)
-                break
-            else if func_result.flag == false then
-                globals.GSItoken_idx = globals.GSIidx_stack[-1]
-            end if
-            if SHOW_PARSE_PROGRESS then
-                print "Parse progress: " + str(globals.GSItoken_idx / globals.GSItokens.len)
-            end if
-        end while
-        
-    end while
-    if globals.GSItoken_idx == globals.GSItokens.len then
-        index = globals.GSIast_stack.len - 1
-        while globals.GSIast_stack.len > 1
-            prev_ast = null
-            if index+1 < globals.GSIast_stack.len then
-                prev_ast = globals.GSIast_stack[index-1]
-            end if
-            current_ast = globals.GSIast_stack[index]
-            next_ast = null
-            if index+1 < globals.GSIast_stack.len then
-                next_ast = globals.GSIast_stack[index+1]
-            end if
-            
-            // merge if cureent_ast is leaf
-            prev_relation = globals.GSIastRelation(current_ast, prev_ast)
-            next_relation =  globals.GSIastRelation(next_ast, current_ast)
-            if current_ast.type == "epsilonNode" then
-                globals.GSIast_stack.remove(index)
-            else if prev_relation == "child" and next_relation != "child" then
-                current_ast.remove("type_stack")
-                if current_ast.items.len != 0 then
-                    if current_ast.ignore then
-                        prev_ast.items = prev_ast.items + current_ast.items
-                    else
-                        current_ast.remove("ignore")
-                        prev_ast.items.push(current_ast)
-                    end if
-                end if
-                globals.GSIast_stack.remove(index)
-            else 
-                index = index - 1
-            end if
-        end while
-        ast = globals.GSIast_stack[0]
-        ast.remove("ignore")
-        ast.remove("type_stack")
-        if DEBUG_MODE then
-            print "AST Result:"
-            print toJSON(ast, true)
-            // print toJSON(globals.GSIast_stack[0])
-        end if
-    else 
-        exit("Parsing Failed")
-    end if
-    if SHOW_PARSE_PROGRESS then
-        print "Parsing Completed"
-    end if
-end function
-// start basic function
-requireType = function(types, result_type, ignore)
-    items = []
-    if typeof(types) == "string" then
-        types = [types]
-    end if
-    for each_type in types
-        if globals.GSItoken_idx >= globals.GSItokens.len or globals.GSItokens[globals.GSItoken_idx]["type"] != each_type then
-            return {"flag": false, "type": result_type}
-        end if
-        current_token = globals.GSItokens[globals.GSItoken_idx]
-        each_range = {"start": [current_token["loc"][0], current_token["loc"][1]-current_token["value"].len], "end": current_token["loc"]}
-        items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
-        globals.GSItoken_idx = globals.GSItoken_idx + 1
-    end for
-    // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
-    return {"flag": true, "type": result_type, "items": items, "ignore": ignore}
-end function
-requireValue = function(value, result_type, ignore)
-    items = []
-    if typeof(value) == "string" then
-        value = [value]
-    end if
-    for each_value in value
-        if globals.GSItoken_idx >= globals.GSItokens.len or globals.GSItokens[globals.GSItoken_idx]["value"] != each_value then
-            return {"flag": false, "type": result_type}
-        end if
-        current_token = globals.GSItokens[globals.GSItoken_idx]
-        each_range = {"start": [current_token["loc"][0], current_token["loc"][1]-current_token["value"].len], "end": current_token["loc"]}
-        items.push({"token_value": current_token["value"], "token_type": current_token["type"], "range": each_range})
-        globals.GSItoken_idx = globals.GSItoken_idx + 1
-    end for
-    // ranges = {"start": [items[0]["range"]["start"][0], items[0]["range"]["start"][1]], "end": items[-1]["range"]["end"]}
-    return {"flag": true, "type": result_type, "items": items, "ignore": ignore}
-end function
-// expand_func(): list[GSINode] | {"flag": flag, "type": type, "items": items, "range": range}
-GSINode = {"expand_func": null, "next_node": null, "type_stack": [],"type": null, "ignore": false}
-GSINode.series = function(nodes)
-    result_nodes = []
-    last_node = new nodes[-1]
-    last_node.next_node = self.next_node
-    last_node.type_stack = self.type_stack + [self.type]
-    result_nodes.push(last_node)
-
-    for i in range(nodes.len-2, 0, -1)
-        each_node = new nodes[i]
-        each_node.next_node = result_nodes[-1]
-        each_node.type_stack = self.type_stack + [self.type]
-        result_nodes.push(each_node)
-    end for
-
-    return [result_nodes[-1]]
-end function
-GSINode.parallel = function(nodes)
-    result_nodes = []
-    for i in nodes.indexes
-        each_node = new nodes[i]
-        each_node.next_node = self.next_node
-        each_node.type_stack = self.type_stack + [self.type]
-        result_nodes.push(each_node)
-    end for
-    return result_nodes
-end function
-GSINode.optional = function(node)
-    return self.parallel([node, epsilonNode])
-end function
-// require expand_func_bak
-GSINode.any = function(node)
-    if self.hasIndex("expand_func_bak") then
-        exit("Error: no expand_func_bak for node: " + self.type)
-    end if
-    result_node = new node
-    result_node.next_node_bak = self.next_node
-    result_node.next_node = result_node
-    result_node.type_stack = self.type_stack + [self.type]
-
-    result_node.expand_func = function()
-        tmp_epsilonNode = new epsilonNode
-        tmp_epsilonNode.next_node = result_node.next_node_bak
-        tmp_epsilonNode.type_stack = result_node.type_stack + [result_node.type]
-        return result_node.expand_func_bak + [tmp_epsilonNode]
-    end function
-    return [result_node]
-end function
-
-greyscript = new GSINode
-greyscript.type = "greyscript"
-greyscript.expand_func = function()
-    return self.any(codeBlock)
-end function
-codeBlock = new GSINode
-codeBlock.type = "codeBlock"
-codeBlock.ignore = true
-codeBlock.expand_func_bak = function()
-    return self.parallel([requireEOL, variableDeclaration, ifStatement, forStatement, whileStatement, returnStatement, expressionStatement])
-end function
-variableDeclaration = new GSINode
-variableDeclaration.type = "variableDeclaration"
-variableDeclaration.expand_func = function()
-    return self.series([objectExpression, requireAssign, objectExpression, requireEOL])
-end function
-// address of expression start
-addressOfExpression = new GSINode
-addressOfExpression.type = "addressOfExpression"
-addressOfExpression.expand_func = function()
-    return self.series([requireAt, objectExpression])
-end function
-// address of expression end
-// expression statement start
-expressionStatement = new GSINode
-expressionStatement.type = "expressionStatement"
-expressionStatement.expand_func = function()
-   return self.series([objectExpression, requireEOL])
-end function
-// expression statement end
-objectExpression = new GSINode
-objectExpression.type = "objectExpression"
-objectExpression.ignore = true
-objectExpression.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, addressOfExpression, listExpression, mapExpression, callExpression, evalExpression, funcExpression, newExpression])
-end function
-evalAtom = new GSINode
-evalAtom.type = "evalAtom"
-evalAtom.ignore = true
-evalAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber, requireNull, requireTrue, requireFalse, listExpression, mapExpression, pri1EvalExpression, pri2EvalExpression, newExpression, callExpression])
-end function
-memberAtom = new GSINode
-memberAtom.type = "memberAtom"
-memberAtom.ignore = true
-memberAtom.expand_func = function()
-   return self.parallel([requireIdentifier, requireString, requireNumber])
-end function
-callAtom = new GSINode
-callAtom.type = "callAtom"
-callAtom.ignore = false
-callAtom.expand_func = function()
-   return self.series([memberAtom, callParams])
-end function
-// list expression start
-listClause = new GSINode
-listClause.type = "listClause"
-listClause.ignore = true
-listClause.expand_func_bak = function
-    return self.series([requireComma, objectExpression])
-end function
-listClauses = new GSINode
-listClauses.type = "listClauses"
-listClauses.ignore = true
-listClauses.expand_func = function
-    return self.any(listClause)
-end function
-listElements = new GSINode
-listElements.type = "listElements"
-listElements.ignore = true
-listElements.expand_func = function()
-   return self.series([objectExpression, listClauses])
-end function
-optListElements = new GSINode
-optListElements.type = "optListElements"
-optListElements.ignore = true
-optListElements.expand_func = function()
-   return self.parallel([listElements, epsilonNodeNoIgnore])
-end function
-listExpression = new GSINode
-listExpression.type = "listExpression"
-listExpression.expand_func = function()
-   return self.series([requireOpenBracket, optListElements, requireCloseBracket])
-end function
-// list expression end
-// map expression start
-mapClause = new GSINode
-mapClause.type = "mapClause"
-mapClause.ignore = true
-mapClause.expand_func_bak = function
-    return self.series([requireComma, pairExpression])
-end function
-mapClauses = new GSINode
-mapClauses.type = "mapClauses"
-mapClauses.ignore = true
-mapClauses.expand_func = function
-    return self.any(mapClause)
-end function
-pairExpression = new GSINode
-pairExpression.type = "pairExpression"
-pairExpression.expand_func = function()
-   return self.series([objectExpression, requireColon, objectExpression])
-end function
-mapElements = new GSINode
-mapElements.type = "mapElements"
-mapElements.ignore = true
-mapElements.expand_func = function()
-   return self.series([pairExpression, mapClauses])
-end function
-optMapElements = new GSINode
-optMapElements.type = "optMapElements"
-optMapElements.ignore = true
-optMapElements.expand_func = function()
-   return self.parallel([mapElements, epsilonNodeNoIgnore])
-end function
-mapExpression = new GSINode
-mapExpression.type = "mapExpression"
-mapExpression.expand_func = function()
-   return self.series([requireOpenBrace, optMapElements, requireCloseBrace])
-end function
-// map expression end
-// reserved string start
-epsilonNode = new GSINode
-epsilonNode.type = "epsilonNode"
-epsilonNode.ignore = true
-epsilonNode.expand_func = function()
-    return {"flag": true, "type": self.type, "range": null, "items": null, "ignore": self.ignore}
-end function
-epsilonNodeNoIgnore = new GSINode
-epsilonNodeNoIgnore.type = "epsilonNodeNoIgnore"
-epsilonNodeNoIgnore.expand_func = function()
-    return {"flag": true, "type": self.type, "range": null, "items": [null], "ignore": self.ignore}
-end function
-requireIdentifier = new GSINode
-requireIdentifier.type = "requireIdentifier"
-requireIdentifier.expand_func = function
-   return requireType("IDENTIFIER", self.type, self.ignore)
-end function
-requireAssign = new GSINode
-requireAssign.type = "requireAssign"
-requireAssign.ignore = true
-requireAssign.expand_func = function()
-   return requireType("ASSIGN", self.type, self.ignore)
-end function
-requireString = new GSINode
-requireString.type = "requireString"
-requireString.expand_func = function()
-   return requireType("STRING", self.type, self.ignore)
-end function
-requireNumber = new GSINode
-requireNumber.type = "requireNumber"
-requireNumber.expand_func = function()
-   return requireType("NUMBER", self.type, self.ignore)
-end function
-requireOpenBracket = new GSINode
-requireOpenBracket.type = "requireOpenBracket"
-requireOpenBracket.ignore = true
-requireOpenBracket.expand_func = function()
-   return requireType("OPEN_BRACKET", self.type, self.ignore)
-end function
-requireCloseBracket = new GSINode
-requireCloseBracket.type = "requireCloseBracket"
-requireCloseBracket.ignore = true
-requireCloseBracket.expand_func = function()
-   return requireType("CLOSE_BRACKET", self.type, self.ignore)
-end function
-requireOpenParen = new GSINode
-requireOpenParen.type = "requireOpenParen"
-requireOpenParen.ignore = true
-requireOpenParen.expand_func = function()
-   return requireType("OPEN_PAREN", self.type, self.ignore)
-end function
-requireCloseParen = new GSINode
-requireCloseParen.type = "requireCloseParen"
-requireCloseParen.ignore = true
-requireCloseParen.expand_func = function()
-   return requireType("CLOSE_PAREN", self.type, self.ignore)
-end function
-requireOpenBrace = new GSINode
-requireOpenBrace.type = "requireOpenBrace"
-requireOpenBrace.ignore = true
-requireOpenBrace.expand_func = function()
-   return requireType("OPEN_BRACE", self.type, self.ignore)
-end function
-requireCloseBrace = new GSINode
-requireCloseBrace.type = "requireCloseBrace"
-requireCloseBrace.ignore = true
-requireCloseBrace.expand_func = function()
-   return requireType("CLOSE_BRACE", self.type, self.ignore)
-end function
-requireComma = new GSINode
-requireComma.type = "requireComma"
-requireComma.ignore = true
-requireComma.expand_func = function()
-   return requireType("COMMA", self.type, self.ignore)
-end function
-requireColon = new GSINode
-requireColon.type = "requireColon"
-requireColon.ignore = true
-requireColon.expand_func = function()
-   return requireType("COLON", self.type, self.ignore)
-end function
-requireDot = new GSINode
-requireDot.type = "requireDot"
-requireDot.ignore = true
-requireDot.expand_func = function()
-   return requireType("DOT", self.type, self.ignore)
-end function
-requireAt = new GSINode
-requireAt.type = "requireAt"
-requireAt.ignore = true
-requireAt.expand_func = function()
-   return requireType("AT", self.type, self.ignore)
-end function
-requireEnter = new GSINode
-requireEnter.type = "requireEnter"
-requireEnter.ignore = true
-requireEnter.expand_func = function()
-   return requireType("ENTER", self.type, self.ignore)
-end function
-requireSemiColon = new GSINode
-requireSemiColon.type = "requireSemiColon"
-requireSemiColon.ignore = true
-requireSemiColon.expand_func = function()
-   return requireType("SEMI_COLON", self.type, self.ignore)
-end function
-requireEOL = new GSINode
-requireEOL.type = "requireEOL"
-requireEOL.ignore = true
-requireEOL.expand_func = function()
-   return self.parallel([requireEnter, requireSemiColon])
-end function
-requireNull = new GSINode
-requireNull.type = "requireNull"
-requireNull.expand_func = function()
-   return requireType("NULL", self.type, self.ignore)
-end function
-requireTrue = new GSINode
-requireTrue.type = "requireTrue"
-requireTrue.expand_func = function()
-   return requireType("TRUE", self.type, self.ignore)
-end function
-requireFalse = new GSINode
-requireFalse.type = "requireFalse"
-requireFalse.expand_func = function()
-   return requireType("FALSE", self.type, self.ignore)
-end function
-requireIf = new GSINode
-requireIf.type = "requireIf"
-requireIf.ignore = true
-requireIf.expand_func = function()
-   return requireType("IF", self.type, self.ignore)
-end function
-requireThen = new GSINode
-requireThen.type = "requireThen"
-requireThen.ignore = true
-requireThen.expand_func = function()
-   return requireType("THEN", self.type, self.ignore)
-end function
-requireElse = new GSINode
-requireElse.type = "requireElse"
-requireElse.ignore = true
-requireElse.expand_func = function()
-   return requireType("ELSE", self.type, self.ignore)
-end function
-requireWhile = new GSINode
-requireWhile.type = "requireWhile"
-requireWhile.ignore = true
-requireWhile.expand_func = function()
-   return requireType("WHILE", self.type, self.ignore)
-end function
-requireFor = new GSINode
-requireFor.type = "requireFor"
-requireFor.ignore = true
-requireFor.expand_func = function()
-   return requireType("FOR", self.type, self.ignore)
-end function
-requireFuncion = new GSINode
-requireFuncion.type = "requireFuncion"
-requireFuncion.ignore = true
-requireFuncion.expand_func = function()
-   return requireType("FUNCTION", self.type, self.ignore)
-end function
-requireNew = new GSINode
-requireNew.type = "requireNew"
-requireNew.ignore = true
-requireNew.expand_func = function()
-   return requireType("NEW", self.type, self.ignore)
-end function
-requireReturn = new GSINode
-requireReturn.type = "requireReturn"
-requireReturn.ignore = true
-requireReturn.expand_func = function()
-   return requireType("RETURN", self.type, self.ignore)
-end function
-requireEnd = new GSINode
-requireEnd.type = "requireEnd"
-requireEnd.ignore = true
-requireEnd.expand_func = function()
-   return requireType("END", self.type, self.ignore)
-end function
-requireIn = new GSINode
-requireIn.type = "requireIn"
-requireIn.ignore = true
-requireIn.expand_func = function()
-   return requireType("IN", self.type, self.ignore)
-end function
-// reserved string end
-// math operator start
-requireStar = new GSINode
-requireStar.type = "requireStar"
-requireStar.expand_func = function()
-   return requireType("STAR", self.type, self.ignore)
-end function
-requireDiv = new GSINode
-requireDiv.type = "requireDiv"
-requireDiv.expand_func = function()
-   return requireType("DIV", self.type, self.ignore)
-end function
-requireMod = new GSINode
-requireMod.type = "requireMod"
-requireMod.expand_func = function()
-   return requireType("MOD", self.type, self.ignore)
-end function
-requireAdd = new GSINode
-requireAdd.type = "requireAdd"
-requireAdd.expand_func = function()
-   return requireType("ADD", self.type, self.ignore)
-end function
-requireMinus = new GSINode
-requireMinus.type = "requireMinus"
-requireMinus.expand_func = function()
-   return requireType("MINUS", self.type, self.ignore)
-end function
-// math operator end
-// logical operator start
-requireEquals = new GSINode
-requireEquals.type = "requireEquals"
-requireEquals.expand_func = function()
-   return requireType("EQUALS", self.type, self.ignore)
-end function
-requireNoteq = new GSINode
-requireNoteq.type = "requireNoteq"
-requireNoteq.expand_func = function()
-   return requireType("NOT_EQ", self.type, self.ignore)
-end function
-requireGteq = new GSINode
-requireGteq.type = "requireGteq"
-requireGteq.expand_func = function()
-   return requireType("GT_EQ", self.type, self.ignore)
-end function
-requireLteq = new GSINode
-requireLteq.type = "requireLteq"
-requireLteq.expand_func = function()
-   return requireType("LT_EQ", self.type, self.ignore)
-end function
-requireGt = new GSINode
-requireGt.type = "requireGt"
-requireGt.expand_func = function()
-   return requireType("GREATER_THAN", self.type, self.ignore)
-end function
-requireLt = new GSINode
-requireLt.type = "requireLt"
-requireLt.expand_func = function()
-   return requireType("LESS_THAN", self.type, self.ignore)
-end function
-requireNot = new GSINode
-requireNot.type = "requireNot"
-requireNot.expand_func = function()
-   return requireType("NOT", self.type, self.ignore)
-end function
-requireAnd = new GSINode
-requireAnd.type = "requireAnd"
-requireAnd.expand_func = function()
-   return requireType("AND", self.type, self.ignore)
-end function
-requireOr = new GSINode
-requireOr.type = "requireOr"
-requireOr.expand_func = function()
-   return requireType("OR", self.type, self.ignore)
-end function
-// logical operator end
-// eval expression start
-optObjectExpression = new GSINode
-optObjectExpression.type = "optObjectExpression"
-optObjectExpression.ignore = true
-optObjectExpression.expand_func = function()
-    return self.parallel([epsilonNodeNoIgnore, objectExpression])
-end function
-pri1EvalExpression = new GSINode
-pri1EvalExpression.type = "pri1EvalExpression"
-pri1EvalExpression.expand_func = function() // ()
-   return self.series([requireOpenParen, optObjectExpression, requireCloseParen])
-end function
-pri2Operator = new GSINode
-pri2Operator.type = "pri2Operator"
-pri2Operator.ignore = true
-pri2Operator.expand_func = function()
-   return self.parallel([requireNot, requireMinus])
-end function
-pri2EvalExpression = new GSINode
-pri2EvalExpression.type = "pri2EvalExpression"
-pri2EvalExpression.expand_func = function() // not + -
-   return self.series([pri2Operator, objectExpression])
-end function
-pri3Operator = new GSINode
-pri3Operator.type = "pri3Operator"
-pri3Operator.ignore = true
-pri3Operator.expand_func = function()
-   return self.parallel([requireStar, requireDiv, requireMod])
-end function
-mdmEvalExpression = new GSINode
-mdmEvalExpression.type = "mdmEvalExpression"
-mdmEvalExpression.expand_func_bak = function()
-    return self.series([pri3Operator, evalAtom])
-end function
-anyMdmEval = new GSINode
-anyMdmEval.type = "anyMdmEval"
-anyMdmEval.ignore = true
-anyMdmEval.expand_func = function()
-    return self.any(mdmEvalExpression)
-end function
-pri3EvalExpression = new GSINode
-pri3EvalExpression.type = "pri3EvalExpression"
-pri3EvalExpression.ignore = true
-pri3EvalExpression.expand_func = function() // * /  %
-   return self.series([evalAtom, anyMdmEval])
-end function
-pri4Operator = new GSINode
-pri4Operator.type = "pri4Operator"
-pri4Operator.ignore = true
-pri4Operator.expand_func = function()
-   return self.parallel([requireAdd, requireMinus])
-end function
-amEvalExpression = new GSINode
-amEvalExpression.type = "amEvalExpression"
-amEvalExpression.expand_func_bak = function() // + -
-   return self.series([pri4Operator, pri3EvalExpression])
-end function
-anyAmEval = new GSINode
-anyAmEval.type = "anyAmEval"
-anyAmEval.ignore = true
-anyAmEval.expand_func = function() // + -
-   return self.any(amEvalExpression)
-end function
-pri4EvalExpression = new GSINode
-pri4EvalExpression.type = "pri4EvalExpression"
-pri4EvalExpression.ignore = true
-pri4EvalExpression.expand_func = function() // + -
-   return self.series([pri3EvalExpression, anyAmEval])
-end function
-pri5Operator = new GSINode
-pri5Operator.type = "pri5Operator"
-pri5Operator.ignore = true
-pri5Operator.expand_func = function()
-   return self.parallel([requireGteq, requireLteq, requireGt, requireLt])
-end function
-compEvalExpression = new GSINode
-compEvalExpression.type = "compEvalExpression"
-compEvalExpression.expand_func_bak = function() // >= <= > <
-   return self.series([pri5Operator, pri4EvalExpression])
-end function
-anyCompEval = new GSINode
-anyCompEval.type = "anyCompEval"
-anyCompEval.ignore = true
-anyCompEval.expand_func = function() // >= <= > <
-   return self.any(compEvalExpression)
-end function
-pri5EvalExpression = new GSINode
-pri5EvalExpression.type = "pri5EvalExpression"
-pri5EvalExpression.ignore = true
-pri5EvalExpression.expand_func = function() // >= <= > <
-   return self.series([pri4EvalExpression, anyCompEval])
-end function
-pri6Operator = new GSINode
-pri6Operator.type = "pri6Operator"
-pri6Operator.ignore = true
-pri6Operator.expand_func = function()
-   return self.parallel([requireEquals, requireNoteq])
-end function
-weqEvalExpression = new GSINode
-weqEvalExpression.type = "weqEvalExpression"
-weqEvalExpression.expand_func_bak = function() // != ==
-   return self.series([pri6Operator, pri5EvalExpression])
-end function
-anyWeqEval = new GSINode
-anyWeqEval.type = "anyWeqEval"
-anyWeqEval.ignore = true
-anyWeqEval.expand_func = function() // != ==
-   return self.any(weqEvalExpression)
-end function
-pri6EvalExpression = new GSINode
-pri6EvalExpression.type = "pri6EvalExpression"
-pri6EvalExpression.ignore = true
-pri6EvalExpression.expand_func = function() // != ==
-   return self.series([pri5EvalExpression, anyWeqEval])
-end function
-andEvalExpression = new GSINode
-andEvalExpression.type = "andEvalExpression"
-andEvalExpression.expand_func_bak = function() // and
-   return self.series([requireAnd, pri6EvalExpression])
-end function
-anyAndEval = new GSINode
-anyAndEval.type = "anyAndEval"
-anyAndEval.ignore = true
-anyAndEval.expand_func = function() // and
-   return self.any(andEvalExpression)
-end function
-pri7EvalExpression = new GSINode
-pri7EvalExpression.type = "pri7EvalExpression"
-pri7EvalExpression.ignore = true
-pri7EvalExpression.expand_func = function() // and
-   return self.series([pri6EvalExpression, anyAndEval])
-end function
-orEvalExpression = new GSINode
-orEvalExpression.type = "orEvalExpression"
-orEvalExpression.expand_func_bak = function() // or
-   return self.series([requireOr, pri7EvalExpression])
-end function
-anyOrEval = new GSINode
-anyOrEval.type = "anyOrEval"
-anyOrEval.ignore = true
-anyOrEval.expand_func = function() // or
-   return self.any(orEvalExpression)
-end function
-pri8EvalExpression = new GSINode
-pri8EvalExpression.type = "pri8EvalExpression"
-pri8EvalExpression.ignore = true
-pri8EvalExpression.expand_func = function() // or
-   return self.series([pri7EvalExpression, anyOrEval])
-end function
-evalExpression = new GSINode
-evalExpression.type = "evalExpression"
-evalExpression.expand_func = function()
-    return self.parallel([pri8EvalExpression])
-end function
-// eval expression end
-// if statement start
-ifStatement = new GSINode
-ifStatement.type = "ifStatement"
-ifStatement.expand_func = function()
-    return self.series([requireIf, evalExpression, requireThen, requireEOL, ifConsequent, anyElifStatement, optElseStatement, requireEnd, requireIf, requireEOL])
-end function
-ifConsequent = new GSINode
-ifConsequent.type = "ifConsequent"
-ifConsequent.expand_func = function()
-    return self.any(codeBlock)
-end function
-ifAlternate = new GSINode
-ifAlternate.type = "ifAlternate"
-ifAlternate.expand_func = function()
-    return self.any(codeBlock)
-end function
-elseStatement = new GSINode
-elseStatement.type = "elseStatement"
-elseStatement.ignore = true
-elseStatement.expand_func = function()
-    return self.series([requireElse, requireEOL, ifAlternate])
-end function
-optElseStatement = new GSINode
-optElseStatement.type = "optElseStatement"
-optElseStatement.ignore = true
-optElseStatement.expand_func = function()
-    return self.optional(elseStatement)
-end function
-elifStatement = new GSINode
-elifStatement.type = "elifStatement"
-elifStatement.expand_func_bak = function()
-    return self.series([requireElse, requireIf, evalExpression, requireThen, requireEOL, ifAlternate])
-end function
-anyElifStatement = new GSINode
-anyElifStatement.type = "anyElifStatement"
-anyElifStatement.ignore = true
-anyElifStatement.expand_func = function()
-    return self.any(elifStatement)
-end function
-// if statement end
-// for statement start
-forCodeBlock = new GSINode
-forCodeBlock.type = "forCodeBlock"
-forCodeBlock.expand_func = function()
-    return self.any(codeBlock)
-end function
-forStatement = new GSINode
-forStatement.type = "forStatement"
-forStatement.expand_func = function()
-    return self.series([requireFor, requireIdentifier, requireIn, objectExpression, requireEOL, forCodeBlock, requireEnd, requireFor, requireEOL])
-end function
-// for statement end
-// while statement start
-whileCodeBlock = new GSINode
-whileCodeBlock.type = "whileCodeBlock"
-whileCodeBlock.expand_func = function()
-    return self.any(codeBlock)
-end function
-whileStatement = new GSINode
-whileStatement.type = "whileStatement"
-whileStatement.expand_func = function()
-    return self.series([requireWhile, evalExpression, requireEOL, whileCodeBlock, requireEnd, requireWhile, requireEOL])
-end function
-// function expression start
-paramAtom = new GSINode
-paramAtom.type = "paramAtom"
-paramAtom.ignore = true
-paramAtom.expand_func = function()
-    return self.parallel([requireString, requireNumber, requireNull, requireTrue, requireFalse])
-end function
-paramDefault = new GSINode
-paramDefault.type = "paramDefault"
-paramDefault.ignore = true
-paramDefault.expand_func = function()
-    return self.series([requireAssign, paramAtom])
-end function
-optParamDefault = new GSINode
-optParamDefault.type = "optParamDefault"
-optParamDefault.ignore = true
-optParamDefault.expand_func = function()
-    return self.optional(paramDefault)
-end function
-funcParam = new GSINode
-funcParam.type = "funcParam"
-funcParam.expand_func = function()
-    return self.series([requireIdentifier, optParamDefault])
-end function
-funcParamClause = new GSINode
-funcParamClause.type = "funcParamClause"
-funcParamClause.ignore = true
-funcParamClause.expand_func_bak = function
-    return self.series([requireComma, funcParam])
-end function
-funcParamClauses = new GSINode
-funcParamClauses.type = "funcParamClauses"
-funcParamClauses.ignore = true
-funcParamClauses.expand_func = function
-    return self.any(funcParamClause)
-end function
-funcParamParen = new GSINode
-funcParamParen.type = "funcParamParen"
-funcParamParen.ignore = true
-funcParamParen.expand_func = function
-    return self.series([funcParam, funcParamClauses])
-end function
-optFuncParamParen = new GSINode
-optFuncParamParen.type = "optFuncParamParen"
-optFuncParamParen.ignore = true
-optFuncParamParen.expand_func = function
-    return self.parallel([epsilonNodeNoIgnore, funcParamParen])
-end function
-funcParams = new GSINode
-funcParams.type = "funcParams"
-funcParams.expand_func = function()
-   return self.series([requireOpenParen, optFuncParamParen, requireCloseParen])
-end function
-optFuncParams = new GSINode
-optFuncParams.type = "optFuncParams"
-optFuncParams.ignore = true
-optFuncParams.expand_func = function()
-   return self.parallel([epsilonNodeNoIgnore, funcParams])
-end function
-funcCodeBlock = new GSINode
-funcCodeBlock.type = "funcCodeBlock"
-funcCodeBlock.expand_func = function()
-    return self.any(codeBlock)
-end function
-funcExpression = new GSINode
-funcExpression.type = "funcExpression"
-funcExpression.expand_func = function()
-    return self.series([requireFuncion, optFuncParams, requireEOL, funcCodeBlock, requireEnd, requireFuncion])
-end function
-// function expression end
-// return statement start
-returnStatement = new GSINode
-returnStatement.type = "returnStatement"
-returnStatement.expand_func = function()
-    return self.series([requireReturn, optObjectExpression, requireEOL])
-end function
-// return statement end
-// call expression start
-callParamClause = new GSINode
-callParamClause.type = "callParamClause"
-callParamClause.ignore = true
-callParamClause.expand_func_bak = function
-    return self.series([requireComma, objectExpression])
-end function
-callParamClauses = new GSINode
-callParamClauses.type = "callParamClauses"
-callParamClauses.ignore = true
-callParamClauses.expand_func = function
-    return self.any(callParamClause)
-end function
-callParamParen = new GSINode
-callParamParen.type = "callParamParen"
-callParamParen.ignore = true
-callParamParen.expand_func = function
-    return self.series([objectExpression, callParamClauses])
-end function
-optCallParamParen = new GSINode
-optCallParamParen.type = "optCallParamParen"
-optCallParamParen.ignore = true
-optCallParamParen.expand_func = function
-    return self.parallel([epsilonNodeNoIgnore, callParamParen])
-end function
-callParamsWithParen = new GSINode
-callParamsWithParen.type = "callParamsWithParen"
-callParamsWithParen.ignore = true
-callParamsWithParen.expand_func = function()
-   return self.series([requireOpenParen, optCallParamParen, requireCloseParen])
-end function
-callParams = new GSINode
-callParams.type = "callParams"
-callParams.expand_func = function()
-   return self.parallel([epsilonNodeNoIgnore, callParamsWithParen])
-end function
-callExpression = new GSINode
-callExpression.type = "callExpression"
-callExpression.expand_func = function()
-    return self.series([callAtom, anyDbMember])
-end function
-// call expression end
-// member expression start
-dotMember = new GSINode
-dotMember.type = "dotMember"
-dotMember.ignore = true
-dotMember.expand_func = function()
-    return self.series([requireDot, callAtom])
-end function
-bracketPair = new GSINode
-bracketPair.type = "bracketPair"
-bracketPair.expand_func = function()
-   return self.series([optObjectExpression, requireColon, optObjectExpression])
-end function
-indexBracketMember = new GSINode
-indexBracketMember.type = "indexBracketMember"
-indexBracketMember.ignore = true
-indexBracketMember.expand_func = function()
-    return self.parallel([objectExpression, bracketPair])
-end function
-bracketMember = new GSINode
-bracketMember.type = "bracketMember"
-bracketMember.ignore = true
-bracketMember.expand_func = function()
-    return self.series([requireOpenBracket, indexBracketMember, requireCloseBracket])
-end function
-dbMember = new GSINode
-dbMember.type = "dbMember"
-dbMember.ignore = true
-dbMember.expand_func_bak = function()
-    return self.parallel([dotMember, bracketMember])
-end function
-anyDbMember = new GSINode
-anyDbMember.type = "anyDbMember"
-anyDbMember.expand_func = function()
-    return self.any(dbMember)
-end function
-// member expression end
-// new expression start
-newExpression = new GSINode
-newExpression.type = "newExpression"
-newExpression.expand_func = function()
-    return self.series([requireNew, objectExpression])
-end function
-// new expression end
-DEBUG_MODE = false
-WAIT_WHEN_DEBUG = false
-SHOW_TOKENIZE_PROGRESS = true
-SHOW_PARSE_PROGRESS = true
-
-source_code = get_shell.host_computer.File(params[0]).get_content
-
-
-tokens = lexer.tokenize(source_code)
-if DEBUG_MODE then
-    print tokens
 end if
-GSIparse(tokens)
+return Result.__init__(ValNumber.__init__(sum),true)
+end function
+f.code=@codeSum
+f=Intrinsic.Create("tan")
+f.AddParam("radians",0)
+codeTan=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(tan(context.GetLocalDouble("radians"))),true)
+end function
+f.code=@codeTan
+f=Intrinsic.Create("time")
+codeTime=function(context,partialResult)
+return Result.__init__(ValNumber.__init__(context.vm.runTime()),true)
+end function
+f.code=@codeTime
+f=Intrinsic.Create("upper")
+f.AddParam_("self")
+codeUpper=function(context,partialResult)
+val_=context.self_
+if isinstance(val_,ValString) then
+str_=val_.value
+return Result.__init__(upper(str_),true)
+end if
+return Result.__init__(val_,true)
+end function
+f.code=@codeUpper
+f=Intrinsic.Create("val")
+f.AddParam("self",0)
+codeVal=function(context,partialResult)
+self_=context.self_
+if isinstance(self_,ValNumber) then
+return Result.__init__(self_,true)
+else if isinstance(self_,ValString) then
+return Result.__init__(ValNumber.__init__(self_.__str__()),true)
+
+end if
+return Result.Null()
+end function
+f.code=@codeVal
+f=Intrinsic.Create("values")
+f.AddParam_("self")
+codeValues=function(context,partialResult)
+self_=context.self_
+result=[]
+if isinstance(self_,ValList) then
+for e in self_.values.values
+result.append(e)
+end for
+return Result.__init__(ValList.__init__(result),true)
+else if isinstance(self_,ValString) then
+for e in self_.value.values
+result.append(e)
+end for
+return Result.__init__(ValList.__init__(result),true)
+else if isinstance(self_,ValMap) then
+for e in self_.map_.values
+result.append(e)
+end for
+return Result.__init__(ValList.__init__(result),true)
+
+end if
+return Result.Null()
+end function
+f.code=@codeValues
+f=Intrinsic.Create("version")
+codeVersion=function(context,partialResult)
+if context.vm.versionMap == null then
+d=ValMap.__init__()
+d.set("miniscript",ValString.__init__("1.6.2"))
+d.set("host",ValNumber.__init__(HostInfo.version))
+d.set("hostName",ValString.__init__(HostInfo.name))
+d.set("hostInfo",ValString.__init__(HostInfo.info))
+context.vm.versionMap=d
+end if
+return Result.__init__(context.vm.versionMap,true)
+end function
+f.code=@codeVersion
+f=Intrinsic.Create("wait")
+f.AddParam("seconds",1)
+codeWait=function(context,partialResult)
+interval=context.GetLocalDouble("seconds")
+wait(interval)
+return Result.Null()
+end function
+f.code=@codeWait
+f=Intrinsic.Create("yield")
+codeYield=function(context,partialResult)
+context.vm.yielding=true
+return Result.Null
+end function
+f.code=@codeYield
+f=Intrinsic.Create("user_input")
+f.AddParam("message","")
+f.AddParam("isPassword",0)
+f.AddParam("anyKey",0)
+codeUserInput=function(context,partialResult)
+message=("[GSI Input]: "+context.GetLocalString("message"))
+isPassword=context.GetLocalBool("isPassword")
+anyKey=context.GetLocalBool("anyKey")
+return Result.__init__(ValString.__init__(user_input(message,isPassword,anyKey)),true)
+end function
+f.code=@codeUserInput
+end function
+Intrinsics.FunctionType=function()
+if Intrinsics._functionType == null then
+Intrinsics._functionType=ValMap.__init__()
+end if
+return Intrinsics._functionType
+end function
+Intrinsics.ListType=function()
+if Intrinsics._listType == null then
+Intrinsics._listType=ValMap.__init__()
+Intrinsics._listType.set("hasIndex",Intrinsic.GetByName("hasIndex").GetFunc())
+Intrinsics._listType.set("indexes",Intrinsic.GetByName("indexes").GetFunc())
+Intrinsics._listType.set("indexOf",Intrinsic.GetByName("indexOf").GetFunc())
+Intrinsics._listType.set("insert",Intrinsic.GetByName("insert").GetFunc())
+Intrinsics._listType.set("join",Intrinsic.GetByName("join").GetFunc())
+Intrinsics._listType.set("len",Intrinsic.GetByName("len").GetFunc())
+Intrinsics._listType.set("pop",Intrinsic.GetByName("pop").GetFunc())
+Intrinsics._listType.set("pull",Intrinsic.GetByName("pull").GetFunc())
+Intrinsics._listType.set("push",Intrinsic.GetByName("push").GetFunc())
+Intrinsics._listType.set("shuffle",Intrinsic.GetByName("shuffle").GetFunc())
+Intrinsics._listType.set("sort",Intrinsic.GetByName("sort").GetFunc())
+Intrinsics._listType.set("sum",Intrinsic.GetByName("sum").GetFunc())
+Intrinsics._listType.set("remove",Intrinsic.GetByName("remove").GetFunc())
+Intrinsics._listType.set("replace",Intrinsic.GetByName("replace").GetFunc())
+Intrinsics._listType.set("values",Intrinsic.GetByName("values").GetFunc())
+end if
+return Intrinsics._listType
+end function
+Intrinsics.StringType=function()
+if Intrinsics._stringType == null then
+Intrinsics._stringType=ValMap.__init__()
+Intrinsics._stringType.set("hasIndex",Intrinsic.GetByName("hasIndex").GetFunc())
+Intrinsics._stringType.set("indexes",Intrinsic.GetByName("indexes").GetFunc())
+Intrinsics._stringType.set("indexOf",Intrinsic.GetByName("indexOf").GetFunc())
+Intrinsics._stringType.set("insert",Intrinsic.GetByName("insert").GetFunc())
+Intrinsics._stringType.set("code",Intrinsic.GetByName("code").GetFunc())
+Intrinsics._stringType.set("len",Intrinsic.GetByName("len").GetFunc())
+Intrinsics._stringType.set("lower",Intrinsic.GetByName("lower").GetFunc())
+Intrinsics._stringType.set("val",Intrinsic.GetByName("val").GetFunc())
+Intrinsics._stringType.set("remove",Intrinsic.GetByName("remove").GetFunc())
+Intrinsics._stringType.set("replace",Intrinsic.GetByName("replace").GetFunc())
+Intrinsics._stringType.set("split",Intrinsic.GetByName("split").GetFunc())
+Intrinsics._stringType.set("upper",Intrinsic.GetByName("upper").GetFunc())
+Intrinsics._stringType.set("values",Intrinsic.GetByName("values").GetFunc())
+end if
+return Intrinsics._stringType
+end function
+Intrinsics.MapType=function()
+if Intrinsics._mapType == null then
+Intrinsics._mapType=ValMap.__init__()
+Intrinsics._mapType.set("hasIndex",Intrinsic.GetByName("hasIndex").GetFunc())
+Intrinsics._mapType.set("indexes",Intrinsic.GetByName("indexes").GetFunc())
+Intrinsics._mapType.set("indexOf",Intrinsic.GetByName("indexOf").GetFunc())
+Intrinsics._mapType.set("len",Intrinsic.GetByName("len").GetFunc())
+Intrinsics._mapType.set("pop",Intrinsic.GetByName("pop").GetFunc())
+Intrinsics._mapType.set("push",Intrinsic.GetByName("push").GetFunc())
+Intrinsics._mapType.set("pull",Intrinsic.GetByName("pull").GetFunc())
+Intrinsics._mapType.set("shuffle",Intrinsic.GetByName("shuffle").GetFunc())
+Intrinsics._mapType.set("sum",Intrinsic.GetByName("sum").GetFunc())
+Intrinsics._mapType.set("remove",Intrinsic.GetByName("remove").GetFunc())
+Intrinsics._mapType.set("replace",Intrinsic.GetByName("replace").GetFunc())
+Intrinsics._mapType.set("values",Intrinsic.GetByName("values").GetFunc())
+end if
+return Intrinsics._mapType
+end function
+Intrinsics.NumberType=function()
+if Intrinsics._numberType == null then
+Intrinsics._numberType=ValMap.__init__()
+end if
+return Intrinsics._numberType
+end function
+Intrinsics.StackList=function(vm)
+result=ValList.__init__()
+if vm == null then
+return result
+end if
+for loc in vm.GetStack()
+if loc == null then
+continue
+end if
+s=loc.context
+if (s == null or s == "") then
+s="(current program)"
+end if
+s=s+(" line "+str(loc.lineNum))
+result.values.append(ValString.__init__(s))
+end for
+return result
+end function
+TAC={}
+TAC.LTemp=function(tempNum)
+return ValTemp.__init__(tempNum)
+end function
+TAC.RTemp=function(tempNum)
+return ValTemp.__init__(tempNum)
+end function
+TAC.Dump=function(lines,lineNumToHighlight,indent)
+lineNum=0
+for line in lines
+if lineNum == lineNumToHighlight then
+s="> "
+else
+s="  "
+end if
+s=s+(str(lineNum)+". ")
+print((s+line.__str__()))
+lineNum=lineNum+1
+if line.op == Op.BindAssignA then
+func=line.rhsA
+TAC.Dump(func.function_.code,- 1,(indent+1))
+end if
+end for
+end function
+TAC.Num=function(value)
+return ValNumber.__init__(value)
+end function
+ValNull={}
+ValNull._inst=null
+ValNull.__init__=function()
+__result__ = new ValNull
+
+return __result__
+end function
+ValNull.__str__=function()
+return "null"
+end function
+ValNull.Equality=function(rhs)
+if (rhs == null or isinstance(rhs,ValNull)) then
+return 1
+else
+return 0
+end if
+end function
+ValNull.IntValue=function()
+return 0
+end function
+ValNull.DoubleValue=function()
+return 0.0
+end function
+ValNull.BoolValue=function()
+return false
+end function
+ValNull.ToString=function(mv)
+return "null"
+end function
+ValNull.Val_=function(context)
+return [null,null]
+end function
+ValNull.IsA=function(type_,vm)
+return type_ == null
+end function
+ValNull.instance=function()
+return ValNull._inst
+end function
+_inst=ValNull.__init__()
+ValNone={}
+ValNone.__init__=function()
+__result__ = new ValNone
+
+return __result__
+end function
+ValNone.__str__=function()
+return ""
+end function
+NONE=ValNone.__init__()
+BackPatch={}
+BackPatch.__init__=function(lineNum,waitingFor)
+__result__ = new BackPatch
+__result__.lineNum=lineNum
+__result__.waitingFor=waitingFor
+return __result__
+end function
+JumpPoint={}
+JumpPoint.__init__=function(lineNum,keyword)
+__result__ = new JumpPoint
+__result__.lineNum=lineNum
+__result__.keyword=keyword
+return __result__
+end function
+ParseState={}
+ParseState.__init__=function()
+__result__ = new ParseState
+__result__.code=[]
+__result__.backpatches=[]
+__result__.jumpPoints=[]
+__result__.nextTempNum=0
+__result__.localOnlyIdentifier=""
+__result__.localOnlyStrict=false
+return __result__
+end function
+ParseState.Add=function(line)
+self.code.append(line)
+end function
+ParseState.AddBackpatch=function(waitFor)
+self.backpatches.append(BackPatch.__init__((len(self.code)-1),waitFor))
+end function
+ParseState.Patch=function(keywordFound,reservingLines)
+self.Patch_(keywordFound,false,reservingLines)
+end function
+ParseState.Patch_=function(keywordFound,alsoBreak,reservingLines)
+target=TAC.Num((len(self.code)+reservingLines))
+done=false
+idx=(len(self.backpatches)-1)
+while (idx >= 0 and not done)
+patchIt=false
+if self.backpatches[idx].waitingFor == keywordFound then
+patchIt=true
+done=true
+else if self.backpatches[idx].waitingFor == "break" then
+patchIt=alsoBreak
+else
+exit(CompilerException((((("'"+keywordFound)+"' skips expected '")+self.backpatches[idx].waitingFor)+"'")))
+end if
+if patchIt then
+self.code[self.backpatches[idx].lineNum].rhsA=target
+self.backpatches.pop(idx)
+end if
+idx=idx-1
+end while
+if not done then
+exit(CompilerException((("'"+keywordFound)+"' without matching block starter")))
+end if
+end function
+ParseState.PatchIfBlock=function(singleLineIf)
+target=TAC.Num(len(self.code))
+idx=(len(self.backpatches)-1)
+while idx >= 0
+bp=self.backpatches[idx]
+if bp.waitingFor == "if:MARK" then
+self.backpatches.pop(idx)
+return
+else if (bp.waitingFor == "end if" or bp.waitingFor == "else") then
+self.code[bp.lineNum].rhsA=target
+self.backpatches.pop(idx)
+else if bp.waitingFor == "break" then
+
+else
+msg=null
+if singleLineIf then
+if (bp.waitingFor == "end for" or bp.waitingFor == "end while") then
+msg="loop is invalid within single-line 'if'"
+else
+msg="invalid control structure within single-line 'if'"
+end if
+else
+msg="'end if' without matching 'if'"
+end if
+exit(CompilerException(msg))
+end if
+idx=idx-1
+end while
+exit(CompilerException("'end if' without matching 'if'"))
+end function
+ParseState.IsJumpTarget=function(lineNum)
+for line in self.code
+op=line.op
+if (op == Op.GotoA or op == Op.GotoAifB or op == Op.GotoAifNotB or op == Op.GotoAifTrulyB) then
+if (isinstance(line.rhsA,ValNumber) and line.rhsA.IntValue() == lineNum) then
+return true
+end if
+end if
+end for
+for jumpPoint in self.jumpPoints
+if jumpPoint.lineNum == lineNum then
+return true
+end if
+end for
+return false
+end function
+ParseState.AddJumpPoint=function(jumpKeyword)
+self.jumpPoints.append(JumpPoint.__init__(len(self.code),jumpKeyword))
+end function
+ParseState.CloseJumpPoint=function(keyword)
+idx=(len(self.jumpPoints)-1)
+if (idx < 0 or self.jumpPoints[idx].keyword != keyword) then
+exit(CompilerException("'end "+keyword+"' without matching '"+keyword+"'"))
+end if
+result=self.jumpPoints[idx]
+self.jumpPoints.pop(idx)
+return result
+end function
+Context={}
+Context.lineNum=0
+Context.variables=null
+Context.outerVars=null
+Context.self_=null
+Context.args=null
+Context.parent=null
+Context.resultStorage=null
+Context.vm=null
+Context.partialResult=null
+Context.temps=null
+Context.implicitResultCounter=0
+Context.__init__=function(code)
+__result__ = new Context
+__result__.code=code
+return __result__
+end function
+Context.Reset=function(clearVariables)
+self.lineNum=0
+self.temps=null
+if clearVariables then
+self.variables=ValMap.__init__()
+end if
+end function
+Context.root=function()
+c=self
+while c.parent != null
+c=c.parent
+end while
+return c
+end function
+Context.GetSourceLoc=function()
+if (self.lineNum < 0 or self.lineNum >= len(self.code)) then
+return null
+end if
+return self.code[self.lineNum].location
+end function
+Context.GetLocal=function(identifier,defaultValue)
+if self.variables != null then
+result=self.variables.TryGetValue(identifier)
+if result[0] then
+return result[1]
+end if
+end if
+return defaultValue
+end function
+Context.GetLocalInt=function(identifier,defaultValue)
+if self.variables != null then
+result=self.variables.TryGetValue(identifier)
+if not result[0] then
+return defaultValue
+end if
+return result[1].IntValue()
+end if
+return defaultValue
+end function
+Context.GetLocalDouble=function(identifier,defaultValue)
+if self.variables != null then
+result=self.variables.TryGetValue(identifier)
+if not result[0] then
+return defaultValue
+end if
+return result[1].DoubleValue()
+end if
+return defaultValue
+end function
+Context.GetLocalString=function(identifier,defaultValue)
+if self.variables != null then
+result=self.variables.TryGetValue(identifier)
+if result[0] == false then
+return defaultValue
+end if
+if result[1] == null then
+return null
+end if
+return result[1].__str__()
+end if
+return defaultValue
+end function
+Context.GetLocalBool=function(identifier,defaultValue)
+if self.variables != null then
+result=self.variables.TryGetValue(identifier)
+if result[0] == false then
+return defaultValue
+end if
+if result[1] == null then
+return null
+end if
+return result[1].BoolValue()
+end if
+return defaultValue
+end function
+Context.GetTemp=function(tempNum,defaultValue)
+if (len(self.temps) != null and tempNum < len(self.temps)) then
+return self.temps[tempNum]
+end if
+return defaultValue
+end function
+Context.GetTemp_=function(tempNum)
+if self.temps == null then
+return null
+else
+return self.temps[tempNum]
+end if
+end function
+Context.SetTemp=function(tempNum,value)
+if self.temps == null then
+self.temps=[]
+end if
+while len(self.temps) <= tempNum
+self.temps.append(null)
+end while
+self.temps[tempNum]=value
+end function
+Context.SetVar=function(identifier,value)
+if (identifier == "globals" or identifier == "locals") then
+exit(RuntimeException("can't assign to "+identifier))
+end if
+if identifier == "self" then
+self.self_=value
+end if
+if self.variables == null then
+self.variables=ValMap.__init__()
+end if
+if (@self.variables.assignOverride == null or not self.variables.assignOverride(ValString.__init__(identifier),value)) then
+self.variables.set(identifier,value)
+end if
+end function
+Context.StoreValue=function(lhs,value)
+if isinstance(lhs,ValTemp) then
+self.SetTemp(lhs.tempNum,value)
+else if isinstance(lhs,ValVar) then
+self.SetVar(lhs.identifier,value)
+else if isinstance(lhs,ValSeqElem) then
+seqElem=lhs
+seq=seqElem.sequence.val_(self)
+if seq == null then
+exit(RuntimeException("can't set indexed element of null"))
+end if
+if not seq.CanSetElem() then
+exit(RuntimeException("can't set an indexed element in this type"))
+end if
+index=seqElem.index
+if (isinstance(index,ValVar) or isinstance(index,ValSeqElem) or isinstance(index,ValTemp)) then
+index=index.val_(self)
+end if
+seq.SetElem(index,value)
+else if lhs != null then
+exit(RuntimeException("not an lvalue"))
+
+end if
+end function
+Context.ValueInContext=function(value)
+if value == null then
+return null
+end if
+return value.val_(self)
+end function
+Context.PushParamArgument=function(arg)
+if self.args == null then
+self.args=[]
+end if
+if len(self.args) > 255 then
+exit(RuntimeException("Argument limit exceeded"))
+end if
+self.args.append(arg)
+end function
+Context.NextCallContext=function(func,argCount,gotSelf,resultStorage)
+result=Context.__init__(func.code)
+result.code=func.code
+result.resultStorage=resultStorage
+result.parent=self
+result.vm=self.vm
+if (gotSelf and len(func.parameters) > 0 and func.parameters[0].name == "self") then
+selfParam=1
+else
+selfParam=0
+end if
+for i in __pyRange__(argCount)
+argument=self.args.pop()
+paramNum=(((argCount-1)-i)+selfParam)
+if paramNum >= len(func.parameters) then
+exit(TooManyArgumentsException())
+end if
+param=func.parameters[paramNum].name
+if param == "self" then
+result.self=argument
+else
+result.SetVar(param,argument)
+end if
+end for
+for paramNum in __pyRange__((argCount+selfParam),len(func.parameters))
+result.SetVar(func.parameters[paramNum].name,func.parameters[paramNum].defaultValue)
+end for
+return result
+end function
+Context.done=function()
+return self.lineNum >= len(self.code)
+end function
+Context.Dump=function()
+print("CODE:")
+TAC.Dump(self.code,self.lineNum)
+print(""+char(10)+"VARS:")
+if self.variables == null then
+print(" NONE")
+else
+for v in self.variables.map_.indexes()
+id=v.ToString(self.vm)
+print(id+": "+self.variables.map_[v].ToString(self.vm))
+end for
+end if
+print(""+char(10)+"TEMPS:")
+if self.temps == null then
+print(" NONE")
+else
+for i in __pyRange__(len(self.temps))
+print("_"+i+": "+self.temps[i])
+end for
+end if
+end function
+Context.ClearCodeAndTemps=function()
+self.code.clear()
+self.lineNum=0
+if self.temps != null then
+self.temps.clear()
+end if
+end function
+Context.GetVar=function(identifier,localOnly)
+idLen=len(identifier)
+if idLen == 4 then
+if identifier == "self" then
+return self.self_
+end if
+else if idLen == 5 then
+if identifier == "outer" then
+if self.outerVars != null then
+return self.outerVars
+end if
+if self.root().variables == null then
+self.root().variables=ValMap.__init__()
+end if
+return self.root().variables
+end if
+else if idLen == 6 then
+if identifier == "locals" then
+if self.variables == null then
+self.variables=ValMap.__init__()
+end if
+return self.variables
+end if
+else if idLen == 7 then
+if identifier == "globals" then
+if self.root().variables == null then
+self.root().variables=ValMap.__init__()
+end if
+return self.root().variables
+end if
+
+end if
+if self.variables != null then
+result=self.variables.TryGetValue(identifier)
+if result[0] then
+return result[1]
+end if
+end if
+if localOnly != LocalOnlyMode.Off then
+if localOnly == LocalOnlyMode.Strict then
+exit(UndefinedLocalException(identifier))
+end if
+print(((("Warning: assignment of unqualified local '"+identifier)+"' based on nonlocal is deprecated ")+self.code[self.lineNum].location),true)
+end if
+if self.outerVars != null then
+result=self.outerVars.TryGetValue(identifier)
+if result[0] then
+return result[1]
+end if
+end if
+if self.parent != null then
+globals_=self.root()
+if globals_.variables != null then
+result=globals_.variables.TryGetValue(identifier)
+if result[0] then
+return result[1]
+end if
+end if
+end if
+intrinsic=Intrinsic.GetByName(identifier)
+if intrinsic != null then
+return intrinsic.GetFunc()
+end if
+exit(UndefinedIdentifierException(identifier))
+end function
+Machine={}
+Machine.interpreter=null
+Machine.functionType=null
+Machine.listType=null
+Machine.mapType=null
+Machine.numberType=null
+Machine.stringType=null
+Machine.versionMap=null
+Machine.storeImplicit=false
+Machine.yielding=false
+Machine.init=function()
+self.globalContext_.vm=self
+self.stack.append(self.globalContext_)
+end function
+Machine.__init__=function(globalContext)
+__result__ = new Machine
+__result__.globalContext_=globalContext
+__result__.stack=[]
+__result__.init()
+return __result__
+end function
+Machine.FindShortName=function(val_)
+if (self.globalContext == null or self.globalContext.variables == null) then
+return null
+end if
+for _key in self.globalContext.variables.map_.indexes
+_value=self.globalContext.variables.map_[_key]
+if (_value == val_ and _key != val_) then
+return _key.ToString(self)
+end if
+end for
+if Intrinsic.shortNames.hasIndex(val_) == false then
+return null
+else
+return Intrinsic.shortNames[val_]
+end if
+end function
+Machine.Reset=function()
+while len(self.stack) > 1
+self.stack.pop()
+end while
+self.stack[- 1].Reset()
+end function
+Machine.DumpTopContext=function()
+self.stack[- 1].Dump()
+end function
+Machine.done=function()
+return (len(self.stack) <= 1 and self.stack[- 1].done())
+end function
+Machine.GetTopContext=function()
+return self.stack[- 1]
+end function
+Machine.globalContext=function()
+return self.globalContext_
+end function
+Machine.GetStack=function()
+result=[]
+for context in self.stack
+result.append(context.GetSourceLoc())
+end for
+return result
+end function
+Machine.PopContext=function()
+if len(self.stack) == 1 then
+return
+end if
+context=self.stack.pop(- 1)
+result=context.GetTemp(0,null)
+storage=context.resultStorage
+context=self.stack[- 1]
+context.StoreValue(storage,result)
+end function
+Machine.DoOneLine=function(line,context)
+if line.op == Op.PushParam then
+val_=context.ValueInContext(line.rhsA)
+context.PushParamArgument(val_)
+else if line.op == Op.CallFunctionA then
+_result=line.rhsA.Val_(context)
+funcVal=_result[0]
+valueFoundIn=_result[1]
+if isinstance(funcVal,ValFunction) then
+self_=null
+if valueFoundIn == null then
+super_=null
+else
+super_=valueFoundIn.Lookup(ValString.magicIsA)
+end if
+if isinstance(line.rhsA,ValSeqElem) then
+seq=line.rhsA.sequence
+if (isinstance(seq,ValVar) and seq.identifier == "super") then
+self_=context.self_
+else
+self_=context.ValueInContext(seq)
+end if
+end if
+func=funcVal
+argCount=line.rhsB.IntValue()
+nextContext=context.NextCallContext(func.function_,argCount,self_ != null,line.lhs)
+nextContext.outerVars=func.outerVars
+if valueFoundIn != null then
+nextContext.SetVar("super",super_)
+end if
+if self_ != null then
+nextContext.self_=self_
+end if
+self.stack.append(nextContext)
+else
+argCount=line.rhsB.IntValue()
+if argCount > 0 then
+exit(TooManyArgumentsException())
+end if
+context.StoreValue(line.lhs,funcVal)
+end if
+else if line.op == Op.ReturnA then
+val_=line.Evaluate(context)
+context.StoreValue(line.lhs,val_)
+self.PopContext()
+else if line.op == Op.AssignImplicit then
+val_=line.Evaluate(context)
+if self.storeImplicit then
+context.StoreValue(ValVar.implicitResult,val_)
+context.implicitResultCounter=context.implicitResultCounter+1
+end if
+else
+val_=line.Evaluate(context)
+context.StoreValue(line.lhs,val_)
+end if
+end function
+Machine.Step=function()
+if len(self.stack) == 0 then
+return
+end if
+context=self.stack[- 1]
+while context.done()
+if len(self.stack) == 1 then
+return
+end if
+self.PopContext()
+context=self.stack[- 1]
+end while
+line=context.code[context.lineNum]
+context.lineNum=context.lineNum+1
+self.DoOneLine(line,context)
+end function
+Machine.runTime=function()
+return time()
+end function
+Parser={}
+Parser.partialInput=null
+Parser.__init__=function()
+__result__ = new Parser
+__result__.errorContext=""
+__result__.outputStack=[]
+__result__.output=null
+__result__.pendingState=null
+__result__.Reset()
+return __result__
+end function
+Parser.Reset=function()
+self.output=ParseState.__init__()
+if self.outputStack == null then
+self.outputStack=[]
+else
+self.outputStack.clear()
+end if
+self.outputStack.append(self.output)
+end function
+Parser.PartialReset=function()
+if self.outputStack == null then
+self.outputStack=[]
+end if
+while len(self.outputStack) > 1
+self.outputStack.pop()
+end while
+self.output=self.outputStack[- 1]
+self.output.backpatches.clear()
+self.output.jumpPoints.clear()
+self.output.nextTempNum=0
+self.partialInput=null
+self.pendingState=null
+end function
+Parser.NeedMoreInput=function()
+if not (self.partialInput == null or len(self.partialInput) == 0) then
+return true
+end if
+if len(self.outputStack) > 1 then
+return true
+end if
+if len(self.output.backpatches) > 0 then
+return true
+end if
+return false
+end function
+Parser.EndsWithLineContinuation=function(sourceCode)
+lastTok=Lexer.LastToken(sourceCode)
+if __pyInOp__(lastTok.type,[Type.EOL,Type.Identifier,Type.Number,Type.RCurly,Type.RParen,Type.RSquare,Type.String,Type.Unknown]) then
+return false
+else if lastTok.type == Type.Keyword then
+return (lastTok.text == "and" or lastTok.text == "or" or lastTok.text == "isa" or lastTok.text == "not" or lastTok.text == "new")
+else
+return true
+end if
+end function
+Parser.CreateVM=function()
+root=Context.__init__(self.output.code)
+return Machine.__init__(root)
+end function
+Parser.Parse=function(sourceCode,replMode)
+if replMode then
+isPartial=self.EndsWithLineContinuation(sourceCode)
+if isPartial then
+self.partialInput=self.partialInput+Lexer.TrimComment(sourceCode)
+self.partialInput=self.partialInput+" "
+return
+end if
+end if
+tokens=Lexer.__init__(sourceCode)
+self.partialInput=null
+self.ParseMultipleLines(tokens)
+if (not replMode and self.NeedMoreInput()) then
+tokens.lineNum=tokens.lineNum+1
+if len(self.outputStack) > 1 then
+exit(CompilerException_(self.errorContext,str(tokens.lineNum),"'function' without matching 'end function'"))
+end if
+self.CheckForOpenBackpatches(tokens.lineNum)
+end if
+end function
+Parser.ParseMultipleLines=function(tokens)
+while not tokens.AtEnd()
+if tokens.Peek().type == Type.EOL then
+tokens.Dequeue()
+continue
+end if
+location=SourceLoc.__init__(self.errorContext,tokens.lineNum)
+if (tokens.Peek().type == Type.Keyword and tokens.Peek().text == "end function") then
+tokens.Dequeue()
+if len(self.outputStack) > 1 then
+self.CheckForOpenBackpatches(tokens.lineNum)
+self.outputStack.pop()
+self.output=self.outputStack[- 1]
+else
+e="'end function' without matching block starter"
+e.location=location
+exit(e)
+end if
+continue
+end if
+outputStart=len(self.output.code)
+self.ParseStatement(tokens)
+for i in __pyRange__(outputStart,len(self.output.code))
+self.output.code[i].location=location
+end for
+end while
+end function
+Parser.ParseStatement=function(tokens,allowExtra)
+if (tokens.Peek().type == Type.Keyword and tokens.Peek().text != "not" and tokens.Peek().text != "true" and tokens.Peek().text != "false") then
+keyword=tokens.Dequeue().text
+if keyword == "return" then
+returnValue=null
+if (tokens.Peek().type != Type.EOL and tokens.Peek().text != "else" and tokens.Peek().text != "else if") then
+returnValue=self.ParseExpr(tokens)
+end if
+self.output.Add(Line.__init__(TAC.LTemp(0),Op.ReturnA,returnValue))
+else if keyword == "if" then
+condition=self.ParseExpr(tokens)
+self.RequireToken(tokens,Type.Keyword,"then")
+self.output.Add(Line.__init__(null,Op.GotoAifNotB,null,condition))
+self.output.AddBackpatch("if:MARK")
+self.output.AddBackpatch("else")
+if tokens.Peek().type != Type.EOL then
+self.ParseStatement(tokens,true)
+if (tokens.Peek().type == Type.Keyword and tokens.Peek().text == "else") then
+tokens.Dequeue()
+self.StartElseClause()
+self.ParseStatement(tokens,true)
+else if (tokens.Peek().type == Type.Keyword and tokens.Peek().text == "else if") then
+tokens.Peek().text="if"
+self.StartElseClause()
+self.ParseStatement(tokens,true)
+else
+self.RequireEitherToken(tokens,Type.Keyword,"else",Type.EOL)
+end if
+self.output.PatchIfBlock(true)
+else
+tokens.Dequeue()
+end if
+return
+else if keyword == "else" then
+self.StartElseClause()
+else if keyword == "else if" then
+self.StartElseClause()
+condition=self.ParseExpr(tokens)
+self.RequireToken(tokens,Type.Keyword,"then")
+self.output.Add(Line.__init__(null,Op.GotoAifNotB,null,condition))
+self.output.AddBackpatch("else")
+else if keyword == "end if" then
+self.output.PatchIfBlock(false)
+else if keyword == "while" then
+self.output.AddJumpPoint(keyword)
+condition=self.ParseExpr(tokens)
+self.output.Add(Line.__init__(null,Op.GotoAifNotB,null,condition))
+self.output.AddBackpatch("end while")
+else if keyword == "end while" then
+jump=self.output.CloseJumpPoint("while")
+self.output.Add(Line.__init__(null,Op.GotoA,TAC.Num(jump.lineNum)))
+self.output.Patch_(keyword,true)
+else if keyword == "for" then
+loopVarTok=self.RequireToken(tokens,Type.Identifier)
+loopVar=ValVar.__init__(loopVarTok.text)
+self.RequireToken(tokens,Type.Keyword,"in")
+stuff=self.ParseExpr(tokens)
+if stuff == null then
+exit(CompilerException_(self.errorContext,tokens.lineNum,"sequence expression expected for 'for' loop"))
+end if
+idxVar=ValVar.__init__((("__"+loopVarTok.text)+"_idx"))
+self.output.Add(Line.__init__(idxVar,Op.AssignA,TAC.Num(- 1)))
+self.output.AddJumpPoint(keyword)
+self.output.Add(Line.__init__(idxVar,Op.APlusB,idxVar,TAC.Num(1)))
+sizeOfSeq=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(sizeOfSeq,Op.LengthOfA,stuff))
+isTooBig=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(isTooBig,Op.AGreatOrEqualB,idxVar,sizeOfSeq))
+self.output.Add(Line.__init__(null,Op.GotoAifB,null,isTooBig))
+self.output.AddBackpatch("end for")
+self.output.Add(Line.__init__(loopVar,Op.ElemBofIterA,stuff,idxVar))
+else if keyword == "end for" then
+jump=self.output.CloseJumpPoint("for")
+self.output.Add(Line.__init__(null,Op.GotoA,TAC.Num(jump.lineNum)))
+self.output.Patch_(keyword,true)
+else if keyword == "break" then
+if len(self.output.jumpPoints) == 0 then
+exit(CompilerException_(self.errorContext,str(tokens.lineNum),"'break' without open loop block"))
+end if
+self.output.Add(Line.__init__(null,Op.GotoA))
+self.output.AddBackpatch("break")
+else if keyword == "continue" then
+if len(self.output.jumpPoints) == 0 then
+exit(CompilerException_(self.errorContext,str(tokens.lineNum),"'continue' without open loop block"))
+end if
+jump=self.output.jumpPoints[- 1]
+self.output.Add(Line.__init__(null,Op.GotoA,TAC.Num(jump.lineNum)))
+else
+exit(CompilerException_(self.errorContext,str(tokens.lineNum),"unexpected keyword '"+keyword+"' at start of line"))
+end if
+else
+self.ParseAssignment(tokens)
+end if
+if not allowExtra then
+self.RequireToken(tokens,Type.EOL)
+end if
+if self.pendingState != null then
+self.output=self.pendingState
+self.outputStack.append(self.output)
+self.pendingState=null
+end if
+end function
+Parser.ParseAssignment=function(tokens)
+expr=self.ParseExpr(tokens,true,true)
+lhs=null
+rhs=null
+peek=tokens.Peek()
+if (peek.type == Type.EOL or (peek.type == Type.Keyword and (peek.text == "else" or peek.text == "else if"))) then
+rhs=self.FullyEvaluate(expr,LocalOnlyMode.Off)
+self.output.Add(Line.__init__(null,Op.AssignImplicit,rhs))
+return
+end if
+if peek.type == Type.OpAssign then
+tokens.Dequeue()
+lhs=expr
+self.output.localOnlyIdentifier=null
+self.output.localOnlyStrict=false
+if isinstance(lhs,ValVar) then
+self.output.localOnlyIdentifier=lhs.identifier
+end if
+rhs=self.ParseExpr(tokens)
+self.output.localOnlyIdentifier=null
+else if (peek.type == Type.OpAssignPlus or peek.type == Type.OpAssignMinus or peek.type == Type.OpAssignTimes or peek.type == Type.OpAssignDivide or peek.type == Type.OpAssignMod or peek.type == Type.OpAssignPower) then
+op=Op.APlusB
+opType=tokens.Dequeue().type
+if opType == Type.OpAssignMinus then
+op=Op.AMinusB
+else if opType == Type.OpAssignTimes then
+op=Op.ATimesB
+else if opType == Type.OpAssignDivide then
+op=Op.ADividedByB
+else if opType == Type.OpAssignMod then
+op=Op.AModB
+else if opType == Type.OpAssignPower then
+op=Op.APowB
+else
+
+end if
+lhs=expr
+self.output.localOnlyIdentifier=null
+self.output.localOnlyStrict=true
+if isinstance(lhs,ValVar) then
+self.output.localOnlyIdentifier=lhs.identifier
+end if
+rhs=self.ParseExpr(tokens)
+opA=self.FullyEvaluate(lhs,LocalOnlyMode.Strict)
+opB=self.FullyEvaluate(rhs,LocalOnlyMode.Off)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),op,opA,opB))
+rhs=TAC.RTemp(tempNum)
+self.output.localOnlyIdentifier=null
+else
+funcRef=expr
+argCount=0
+while true
+arg=self.ParseExpr(tokens)
+self.output.Add(Line.__init__(null,Op.PushParam,arg))
+argCount=argCount+1
+if tokens.Peek().type == Type.EOL then
+break
+end if
+if (tokens.Peek().type == Type.Keyword and (tokens.Peek().text == "else" or tokens.Peek().text == "else if")) then
+break
+end if
+if tokens.Peek().type == Type.Comma then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+continue
+end if
+if self.RequireEitherToken(tokens,Type.Comma,Type.EOL).type == Type.EOL then
+break
+end if
+end while
+result=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(result,Op.CallFunctionA,funcRef,TAC.Num(argCount)))
+self.output.Add(Line.__init__(null,Op.AssignImplicit,result))
+return
+end if
+if isinstance(lhs,ValTemp) then
+exit(CompilerException_(self.errorContext,tokens.lineNum,"invalid assignment (not an lvalue)"))
+end if
+if (isinstance(rhs,ValTemp) and len(self.output.code) > 0 and not self.output.IsJumpTarget(len(self.output.code))) then
+line=self.output.code[- 1]
+if line.lhs.Equals(rhs) then
+line.lhs=lhs
+return
+end if
+end if
+if (isinstance(rhs,ValFunction) and len(self.output.code) > 0) then
+line=self.output.code[- 1]
+if line.op == Op.BindAssignA then
+line.lhs=lhs
+return
+end if
+end if
+self.output.Add(Line.__init__(lhs,Op.AssignA,rhs))
+end function
+Parser.ParseExpr=function(tokens,asLval,statementStart)
+return self.ParseFunction(tokens,asLval,statementStart)
+end function
+Parser.ParseFunction=function(tokens,asLval,statementStart)
+tok=tokens.Peek()
+if (tok.type != Type.Keyword or tok.text != "function") then
+return self.ParseOr(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+func=Function.__init__(null)
+tok=tokens.Peek()
+if tok.type != Type.EOL then
+paren=self.RequireToken(tokens,Type.LParen)
+while tokens.Peek().type != Type.RParen
+_id=tokens.Dequeue()
+if _id.type != Type.Identifier then
+exit(CompilerException_(self.errorContext,tokens.lineNum,"got "+_id+" where an identifier is required"))
+end if
+defaultValue=null
+if tokens.Peek().type == Type.OpAssign then
+tokens.Dequeue()
+defaultValue=self.ParseExpr(tokens)
+if isinstance(defaultValue,ValTemp) then
+exit(CompilerException_(self.errorContext,tokens.lineNum,"parameter default value must be a literal value"))
+end if
+end if
+func.parameters.append(Param.__init__(_id.text,defaultValue))
+if tokens.Peek().type == Type.RParen then
+break
+end if
+self.RequireToken(tokens,Type.Comma)
+end while
+self.RequireToken(tokens,Type.RParen)
+end if
+if self.pendingState != null then
+exit(CompilerException_(self.errorContext,tokens.lineNum,"can't start two functions in one statement"))
+end if
+self.pendingState=ParseState.__init__()
+self.pendingState.nextTempNum=1
+func.code=self.pendingState.code
+valFunc=ValFunction.__init__(func)
+self.output.Add(Line.__init__(null,Op.BindAssignA,valFunc))
+return valFunc
+end function
+Parser.ParseOr=function(tokens,asLval,statementStart)
+val_=self.ParseAnd(tokens,asLval,statementStart)
+jumpLines=null
+tok=tokens.Peek()
+while (tok.type == Type.Keyword and tok.text == "or")
+tokens.Dequeue()
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+self.AllowLineBreak(tokens)
+jump=Line.__init__(null,Op.GotoAifTrulyB,null,val_)
+self.output.Add(jump)
+if jumpLines == null then
+jumpLines=[]
+end if
+jumpLines.append(jump)
+opB=self.ParseAnd(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.AOrB,val_,opB))
+val_=TAC.RTemp(tempNum)
+tok=tokens.Peek()
+end while
+if jumpLines != null then
+self.output.Add(Line.__init__(null,Op.GotoA,TAC.Num((len(self.output.code)+2))))
+self.output.Add(Line.__init__(val_,Op.AssignA,ValNumber.one()))
+for jump in jumpLines
+jump.rhsA=TAC.Num((len(self.output.code)-1))
+end for
+end if
+return val_
+end function
+Parser.ParseAnd=function(tokens,asLval,statementStart)
+val_=self.ParseNot(tokens,asLval,statementStart)
+jumpLines=null
+tok=tokens.Peek()
+while (tok.type == Type.Keyword and tok.text == "and")
+tokens.Dequeue()
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+self.AllowLineBreak(tokens)
+jump=Line.__init__(null,Op.GotoAifNotB,null,val_)
+self.output.Add(jump)
+if jumpLines == null then
+jumpLines=[]
+end if
+jumpLines.append(jump)
+opB=self.ParseNot(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.AAndB,val_,opB))
+val_=TAC.RTemp(tempNum)
+tok=tokens.Peek()
+end while
+if jumpLines != null then
+self.output.Add(Line.__init__(null,Op.GotoA,TAC.Num((len(self.output.code)+2))))
+self.output.Add(Line.__init__(val_,Op.AssignA,ValNumber.zero()))
+for jump in jumpLines
+jump.rhsA=TAC.Num((len(self.output.code)-1))
+end for
+end if
+return val_
+end function
+Parser.ParseNot=function(tokens,asLval,statementStart)
+tok=tokens.Peek()
+val_=null
+if (tok.type == Type.Keyword and tok.text == "not") then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.ParseIsA(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.NotA,val_))
+val_=TAC.RTemp(tempNum)
+else
+val_=self.ParseIsA(tokens,asLval,statementStart)
+end if
+return val_
+end function
+Parser.ParseIsA=function(tokens,asLval,statementStart)
+val_=self.ParseComparisons(tokens,asLval,statementStart)
+if (tokens.Peek().type == Type.Keyword and tokens.Peek().text == "isa") then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+opB=self.ParseComparisons(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.AisaB,val_,opB))
+val_=TAC.RTemp(tempNum)
+end if
+return val_
+end function
+Parser.ParseComparisons=function(tokens,asLval,statementStart)
+val_=self.ParseAddSub(tokens,asLval,statementStart)
+opA=val_
+opcode=Parser.ComparisonOp(tokens.Peek().type)
+firstComparison=true
+while opcode != Op.Noop
+tokens.Dequeue()
+opA=self.FullyEvaluate(opA,LocalOnlyMode.Off)
+self.AllowLineBreak(tokens)
+opB=self.ParseAddSub(tokens,false,false)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),opcode,opA,opB))
+if firstComparison then
+firstComparison=false
+else
+
+end if
+val_=TAC.RTemp(tempNum)
+opA=opB
+opcode=self.ComparisonOp(tokens.Peek().type)
+end while
+return val_
+end function
+Parser.ParseAddSub=function(tokens,asLval,statementStart)
+val_=self.ParseMultDiv(tokens,asLval,statementStart)
+tok=tokens.Peek()
+while (tok.type == Type.OpPlus or (tok.type == Type.OpMinus and (not statementStart or not tok.afterSpace or tokens.IsAtWhitespace())))
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+opB=self.ParseMultDiv(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+if tok.type == Type.OpPlus then
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.APlusB,val_,opB))
+else
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.AMinusB,val_,opB))
+end if
+val_=TAC.RTemp(tempNum)
+tok=tokens.Peek()
+end while
+return val_
+end function
+Parser.ParseMultDiv=function(tokens,asLval,statementStart)
+val_=self.ParseUnaryMinus(tokens,asLval,statementStart)
+tok=tokens.Peek()
+while (tok.type == Type.OpTimes or tok.type == Type.OpDivide or tok.type == Type.OpMod)
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+opB=self.ParseUnaryMinus(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+if tok.type == Type.OpTimes then
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.ATimesB,val_,opB))
+else if tok.type == Type.OpDivide then
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.ADividedByB,val_,opB))
+else if tok.type == Type.OpMod then
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.AModB,val_,opB))
+
+end if
+val_=TAC.RTemp(tempNum)
+tok=tokens.Peek()
+end while
+return val_
+end function
+Parser.ParseUnaryMinus=function(tokens,asLval,statementStart)
+if tokens.Peek().type != Type.OpMinus then
+return self.ParseNew(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.ParseNew(tokens)
+if isinstance(val_,ValNumber) then
+val_.value=- val_.value
+return val_
+end if
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.AMinusB,TAC.Num(0),val_))
+return TAC.RTemp(tempNum)
+end function
+Parser.ParseNew=function(tokens,asLval,statementStart)
+if (tokens.Peek().type != Type.Keyword or tokens.Peek().text != "new") then
+return self.ParsePower(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+_isa=self.ParsePower(tokens)
+result=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(result,Op.NewA,_isa))
+return result
+end function
+Parser.ParsePower=function(tokens,asLval,statementStart)
+val_=self.ParseAddressOf(tokens,asLval,statementStart)
+tok=tokens.Peek()
+while tok.type == Type.OpPower
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+opB=self.ParseAddressOf(tokens)
+tempNum=self.output.nextTempNum
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(TAC.LTemp(tempNum),Op.APowB,val_,opB))
+val_=TAC.RTemp(tempNum)
+tok=tokens.Peek()
+end while
+return val_
+end function
+Parser.ParseAddressOf=function(tokens,asLval,statementStart)
+if tokens.Peek().type != Type.AddressOf then
+return self.ParseCallExpr(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.ParseCallExpr(tokens,true,statementStart)
+if isinstance(val_,ValVar) then
+val_.noInvoke=true
+else if isinstance(val_,ValSeqElem) then
+val_.noInvoke=true
+
+end if
+return val_
+end function
+Parser.ParseCallExpr=function(tokens,asLval,statementStart)
+val_=self.ParseMap(tokens,asLval,statementStart)
+while true
+if tokens.Peek().type == Type.Dot then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+nextIdent=self.RequireToken(tokens,Type.Identifier)
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+val_=ValSeqElem.__init__(val_,ValString.__init__(nextIdent.text))
+if (tokens.Peek().type == Type.LParen and not tokens.Peek().afterSpace) then
+val_=self.ParseCallArgs(val_,tokens)
+end if
+else if (tokens.Peek().type == Type.LSquare and not tokens.Peek().afterSpace) then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.FullyEvaluate(val_,LocalOnlyMode.Off)
+if tokens.Peek().type == Type.Colon then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+index2=null
+if tokens.Peek().type != Type.RSquare then
+index2=self.ParseExpr(tokens)
+end if
+temp=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+Intrinsics.CompileSlice(self.output.code,val_,null,index2,temp.tempNum)
+val_=temp
+else
+index=self.ParseExpr(tokens)
+if tokens.Peek().type == Type.Colon then
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+index2=null
+if tokens.Peek().type != Type.RSquare then
+index2=self.ParseExpr(tokens)
+end if
+temp=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+Intrinsics.CompileSlice(self.output.code,val_,index,index2,temp.tempNum)
+val_=temp
+else if statementStart then
+if isinstance(val_,ValSeqElem) then
+vsVal=val_
+temp=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(temp,Op.ElemBofA,vsVal.sequence,vsVal.index))
+val_=temp
+end if
+val_=ValSeqElem.__init__(val_,index)
+else
+temp=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(temp,Op.ElemBofA,val_,index))
+val_=temp
+end if
+end if
+self.RequireToken(tokens,Type.RSquare)
+else if ((isinstance(val_,ValVar) and not val_.noInvoke) or (isinstance(val_,ValSeqElem) and not val_.noInvoke)) then
+if (not asLval or (tokens.Peek().type == Type.LParen and not tokens.Peek().afterSpace)) then
+val_=self.ParseCallArgs(val_,tokens)
+else
+break
+end if
+else
+break
+end if
+end while
+return val_
+end function
+Parser.ParseMap=function(tokens,asLval,statementStart)
+if tokens.Peek().type != Type.LCurly then
+return self.ParseList(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+map_val=ValMap.__init__()
+if tokens.Peek().type == Type.RCurly then
+tokens.Dequeue()
+else
+while true
+self.AllowLineBreak(tokens)
+if tokens.Peek().type == Type.RCurly then
+tokens.Dequeue()
+break
+end if
+key=self.ParseExpr(tokens)
+self.RequireToken(tokens,Type.Colon)
+self.AllowLineBreak(tokens)
+value=self.ParseExpr(tokens)
+if key then
+map_val.map_[key]=value
+else
+map_val.map_[ValNull.instance]=value
+end if
+if self.RequireEitherToken(tokens,Type.Comma,Type.RCurly).type == Type.RCurly then
+break
+end if
+end while
+end if
+result=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(result,Op.CopyA,map_val))
+return result
+end function
+Parser.ParseList=function(tokens,asLval,statementStart)
+if tokens.Peek().type != Type.LSquare then
+return self.ParseQuantity(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+_list=ValList.__init__()
+if tokens.Peek().type == Type.RSquare then
+tokens.Dequeue()
+else
+while true
+self.AllowLineBreak(tokens)
+if tokens.Peek().type == Type.RSquare then
+tokens.Dequeue()
+break
+end if
+elem=self.ParseExpr(tokens)
+_list.values.append(elem)
+if self.RequireEitherToken(tokens,Type.Comma,Type.RSquare).type == Type.RSquare then
+break
+end if
+end while
+end if
+result=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(result,Op.CopyA,_list))
+return result
+end function
+Parser.ParseQuantity=function(tokens,asLval,statementStart)
+if tokens.Peek().type != Type.LParen then
+return self.ParseAtom(tokens,asLval,statementStart)
+end if
+tokens.Dequeue()
+self.AllowLineBreak(tokens)
+val_=self.ParseExpr(tokens)
+self.RequireToken(tokens,Type.RParen)
+return val_
+end function
+Parser.ParseAtom=function(tokens,asLval,statementStart)
+if not tokens.AtEnd() then
+tok=tokens.Dequeue()
+else
+tok=Token.EOL
+end if
+if tok.type == Type.Number then
+return ValNumber.__init__(float(tok.text))
+else if tok.type == Type.String then
+return ValString.__init__(tok.text)
+else if tok.type == Type.Identifier then
+if tok.text == "self" then
+return ValVar.self_
+end if
+result=ValVar.__init__(tok.text)
+if result.identifier == self.output.localOnlyIdentifier then
+if self.output.localOnlyStrict then
+result.localOnly=LocalOnlyMode.Strict
+else
+result.localOnly=LocalOnlyMode.Warn
+end if
+end if
+return result
+else if tok.type == Type.Keyword then
+if tok.text == "null" then
+return null
+else if tok.text == "true" then
+return ValNumber.one()
+else if tok.text == "false" then
+return ValNumber.zero()
+
+end if
+
+end if
+exit(CompilerException("got "+tok.__str__()+" where number, string, or identifier is required"))
+end function
+Parser.ParseCallArgs=function(funcRef,tokens)
+argCount=0
+if tokens.Peek().type == Type.LParen then
+tokens.Dequeue()
+if tokens.Peek().type == Type.RParen then
+tokens.Dequeue()
+else
+while true
+self.AllowLineBreak(tokens)
+arg=self.ParseExpr(tokens)
+self.output.Add(Line.__init__(null,Op.PushParam,arg))
+argCount=argCount+1
+if self.RequireEitherToken(tokens,Type.Comma,Type.RParen).type == Type.RParen then
+break
+end if
+end while
+end if
+end if
+result=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(result,Op.CallFunctionA,funcRef,TAC.Num(argCount)))
+return result
+end function
+Parser.FullyEvaluate=function(var,localOnlyMode)
+if isinstance(var,ValVar) then
+if var.noInvoke then
+return var
+end if
+if var.identifier == self.output.localOnlyIdentifier then
+var.localOnly=localOnlyMode
+end if
+if (var.identifier == "super" or var.identifier == "self") then
+return var
+end if
+temp=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(temp,Op.CallFunctionA,var,ValNumber.zero()))
+return temp
+else if isinstance(var,ValSeqElem) then
+elem=var
+if elem.noInvoke then
+return var
+end if
+temp=ValTemp.__init__(self.output.nextTempNum)
+self.output.nextTempNum=self.output.nextTempNum+1
+self.output.Add(Line.__init__(temp,Op.CallFunctionA,var,ValNumber.zero()))
+return temp
+
+end if
+return var
+end function
+Parser.RequireToken=function(tokens,_type,text)
+if tokens.AtEnd() then
+got=Token.EOL
+else
+got=tokens.Dequeue()
+end if
+if (got.type != _type or (text != null and got.text != text)) then
+expected=Token.__init__(_type,text)
+if (got.type == Type.OpAssign and text == "then") then
+exit(CompilerException_(self.errorContext,tokens.lineNum,"found = instead of == in if condition"))
+end if
+exit(CompilerException_(self.errorContext,str(tokens.lineNum),"got "+got.__str__()+" where "+expected.__str__()+" is required"))
+end if
+return got
+end function
+Parser.StartElseClause=function()
+self.output.Add(Line.__init__(null,Op.GotoA,null))
+self.output.Patch("else")
+self.output.AddBackpatch("end if")
+end function
+Parser.CheckForOpenBackpatches=function(sourceLineNum)
+if len(self.output.backpatches) == 0 then
+return
+end if
+bp=self.output.backpatches[- 1]
+if bp.waitingFor == "end for" then
+msg="'for' without matching 'end for'"
+else if __pyInOp__(bp.waitingFor,["end if","else"]) then
+msg="'if' without matching 'end if'"
+else if bp.waitingFor == "end while" then
+msg="'while' without matching 'end while'"
+else
+msg="unmatched block opener"
+end if
+exit(CompilerException_(self.errorContext,sourceLineNum,msg))
+end function
+Parser._RequireEitherToken=function(tokens,type1,text1,type2,text2)
+if not tokens.AtEnd() then
+got=tokens.Dequeue()
+else
+got=Token.EOL
+end if
+if ((got.type != type1 and got.type != type2) or ((text1 != null and got.text != text1) and (text2 != null and got.text != text2))) then
+expected1=Token.__init__(type1,text1)
+expected2=Token.__init__(type2,text2)
+exit(CompilerException_(self.errorContext,str(tokens.lineNum),"got "+got.__str__()+" where "+expected1.__str__()+" or "+expected2.__str__()+" is required"))
+end if
+return got
+end function
+Parser.RequireEitherToken=function(tokens,type1,type2,text2)
+return self._RequireEitherToken(tokens,type1,null,type2,text2)
+end function
+Parser.ComparisonOp=function(tokenType)
+if tokenType == Type.OpEqual then
+return Op.AEqualB
+else if tokenType == Type.OpNotEqual then
+return Op.ANotEqualB
+else if tokenType == Type.OpGreater then
+return Op.AGreaterThanB
+else if tokenType == Type.OpGreatEqual then
+return Op.AGreatOrEqualB
+else if tokenType == Type.OpLesser then
+return Op.ALessThanB
+else if tokenType == Type.OpLessEqual then
+return Op.ALessOrEqualB
+else
+return Op.Noop
+end if
+end function
+Parser.AllowLineBreak=function(tokens)
+while (tokens.Peek().type == Type.EOL and not tokens.AtEnd())
+tokens.Dequeue()
+end while
+end function
+Parser.TestValidParse=function(src,dumpTac)
+parser=Parser.__init__()
+parser.Parse(src)
+if (dumpTac and parser.output != null) then
+TAC.Dump(parser.output.code,- 1)
+end if
+end function
+Parser.RunUnitTests=function()
+Parser.TestValidParse("pi < 4")
+Parser.TestValidParse("(pi < 4)")
+Parser.TestValidParse("if true then 20 else 30")
+Parser.TestValidParse("f = function(x)"+char(10)+"return x*3"+char(10)+"end function"+char(10)+"f(14)")
+Parser.TestValidParse("foo=""bar"""+char(10)+"indexes(foo*2)"+char(10)+"foo.indexes")
+Parser.TestValidParse("x=[]"+char(10)+"x.push(42)")
+Parser.TestValidParse("list1=[10, 20, 30, 40, 50]; range(0, list1.len)")
+Parser.TestValidParse("f = function(x); print(""foo""); end function; print(false and f)")
+Parser.TestValidParse("print 42")
+Parser.TestValidParse("print true")
+Parser.TestValidParse("f = function(x)"+char(10)+"print x"+char(10)+"end function"+char(10)+"f 42")
+Parser.TestValidParse("myList = [1, null, 3]")
+Parser.TestValidParse("while true; if true then; break; else; print 1; end if; end while")
+Parser.TestValidParse("x = 0 or"+char(10)+"1")
+Parser.TestValidParse("x = [1, 2, "+char(10)+" 3]")
+Parser.TestValidParse("range 1,"+char(10)+"10, 2")
+end function
+Interpreter={}
+Interpreter.__init__=function(source)
+__result__ = new Interpreter
+__result__.vm=null
+__result__.source=source
+__result__.parser=null
+return __result__
+end function
+Interpreter.done=function()
+return (self.vm == null or self.vm.done)
+end function
+Interpreter.NeedMoreInput=function()
+return (self.parser != null and self.parser.NeedMoreInput())
+end function
+Interpreter.Stop=function()
+if self.vm != null then
+self.vm.stop()
+end if
+if self.parser != null then
+self.parser.PartialReset()
+end if
+end function
+Interpreter.Compile=function()
+if self.vm != null then
+return
+end if
+if self.parser == null then
+self.parser=Parser.__init__()
+end if
+self.parser.Parse(self.source)
+self.vm=self.parser.CreateVM()
+self.vm.interpreter=self
+if self.vm == null then
+self.parser=null
+end if
+end function
+Interpreter.CheckImplicitResult=function(previousImpResultCount)
+if self.vm.globalContext().implicitResultCounter > previousImpResultCount then
+result=self.vm.globalContext().GetVar(ValVar.implicitResult.identifier,LocalOnlyMode.Off)
+if result != null then
+print(result.ToString(self.vm))
+end if
+end if
+end function
+Interpreter.RunUntilDone=function(timeLimit,returnEarly)
+if self.vm == null then
+self.Compile()
+if self.vm == null then
+return
+end if
+end if
+startImpResultCount=self.vm.globalContext().implicitResultCounter
+startTime=self.vm.runTime()
+self.vm.yielding=false
+while (not self.vm.done() and not self.vm.yielding)
+if (self.vm.runTime()-startTime) > timeLimit then
+return
+end if
+self.vm.Step()
+if (returnEarly and self.vm.GetTopContext().partialResult != null) then
+return
+end if
+end while
+self.CheckImplicitResult(startImpResultCount)
+end function
+Interpreter.REPL=function(sourceLine,timeLimit)
+if self.parser == null then
+self.parser=Parser.__init__()
+end if
+if self.vm == null then
+self.vm=self.parser.CreateVM()
+self.vm.interpreter=self
+else if (self.vm.done() and not self.parser.NeedMoreInput()) then
+self.vm.GetTopContext().ClearCodeAndTemps()
+self.parser.PartialReset()
+
+end if
+if sourceLine == "#DUMP" then
+self.vm.DumpTopContext()
+return
+end if
+HostInfo.name="REPL"
+startTime=self.vm.runTime()
+startImpResultCount=self.vm.globalContext().implicitResultCounter
+self.vm.storeImplicit=true
+self.vm.yielding=false
+if sourceLine != null then
+self.parser.Parse(sourceLine,true)
+end if
+if not self.parser.NeedMoreInput() then
+while (not self.vm.done() and not self.vm.yielding)
+if (self.vm.runTime()-startTime) > timeLimit then
+return
+end if
+self.vm.Step()
+end while
+self.CheckImplicitResult(startImpResultCount)
+end if
+end function
+Eval=function(sourceLines,dumpTAC)
+HostInfo.name="Eval"
+miniscript=Interpreter.__init__(sourceLines)
+miniscript.Compile()
+if (dumpTAC and miniscript.vm != null) then
+miniscript.vm.DumpTopContext()
+end if
+while not miniscript.done()
+miniscript.RunUntilDone(60)
+end while
+end function
+RunFile=function(path,dumpTAC)
+file=get_shell().host_computer().File(path)
+sourceLines=file.get_content()
+if sourceLines == null then
+print(("Unable to read: "+path))
+end if
+HostInfo.name="Run File"
+miniscript=Interpreter.__init__(sourceLines)
+miniscript.Compile()
+if (dumpTAC and miniscript.vm != null) then
+miniscript.vm.DumpTopContext()
+end if
+while not miniscript.done()
+miniscript.RunUntilDone(60)
+end while
+end function
+HostInfo={}
+HostInfo.name=null
+HostInfo.info="Beta"
+HostInfo.version=1
+Main=function()
+if (len(params) > 0 and params[0] == "--test") then
+HostInfo.name="Test harness"
+print("GreyScript Interpreter test harness.")
+print("Running unit tests.")
+startTime=time()
+Lexer.RunUnitTests()
+Parser.RunUnitTests()
+endTime=time()
+print("Unit tests run time: "+(endTime-startTime)+" sec")
+quickTestFilePath="QuickTest.src"
+file=get_shell().host_computer().File(quickTestFilePath)
+if file != null then
+print("Running quick test.")
+startTime=time()
+Interpreter.RunFile(quickTestFilePath,true)
+endTime=time()
+print("Quick test run time: "+(endTime-startTime)+" sec")
+else
+print("Quick test not found, skipping...")
+end if
+print("Test harness completed.")
+return
+end if
+if len(params) > 0 then
+file=get_shell().host_computer().File(params[0])
+if file != null then
+RunFile(params[0])
+else
+print("File not found.")
+end if
+return
+end if
+repl=Interpreter.__init__()
+while true
+if repl.NeedMoreInput() then
+inp=user_input(">>> ")
+else
+inp=user_input("> ")
+end if
+if inp == "#STOP" then
+break
+end if
+repl.REPL(inp,60)
+end while
+end function
+Main()
